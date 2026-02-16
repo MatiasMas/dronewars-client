@@ -16,3 +16,7 @@ yarn-error.log*
 *.iml
 *.ipr
 out/
+
+# macOS
+.DS_Store
+**/.DS_Store
