@@ -1,4 +1,5 @@
 import {IUnit} from "../types/IUnit";
+import {IPosition} from "../types/IPosition";
 import {ClientInternalEvents} from "../types/CommunicationEvents";
 
 type ManagerCallback = (data?: any) => void;
@@ -41,6 +42,21 @@ export class SelectionManager {
   public confirmSelection(unit: IUnit): void {
     this.selectedUnit = unit;
     this.emit(ClientInternalEvents.SELECTION_CONFIRMED, unit);
+  }
+
+  public updateUnitPosition(unitId: string, position: IPosition): void {
+    const unit = this.playerUnits.find(unit => unit.unitId === unitId);
+    if (!unit) {
+      return;
+    }
+
+    unit.x = position.x;
+    unit.y = position.y;
+    unit.z = position.z;
+
+    if (this.selectedUnit?.unitId === unitId) {
+      this.selectedUnit = unit;
+    }
   }
 
   public deselectUnit(): void {

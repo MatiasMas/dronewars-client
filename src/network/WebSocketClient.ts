@@ -1,6 +1,5 @@
 // An event callback its just a function that executes when a specific event is received
 import {ClientInternalEvents, ClientToServerEvents, ServerToClientEvents} from "../types/CommunicationEvents";
-import P = Phaser.Input.Keyboard.KeyCodes.P;
 
 type EventCallback = (data?: any) => void;
 
@@ -85,6 +84,20 @@ export class WebSocketClient {
   }
 
   /*
+  * Request unit movement to the server
+  * Message: ClientToServerEvents.MOVE_UNIT
+  */
+  public requestUnitMove(unitId: string, targetX: number, targetY: number, targetZ?: number): void {
+    this.send({
+      type: 'MOVE_UNIT',
+      unitId: unitId,
+      targetX: targetX,
+      targetY: targetY,
+      ...(targetZ !== undefined ? { targetZ: targetZ } : {})
+    });
+  }
+
+  /*
   * This method assigns an EventCallback depending on the event being passed
   */
   public on(event: string, callback: EventCallback): void {
@@ -119,6 +132,10 @@ export class WebSocketClient {
       return;
     }
 
+    if (message && typeof message.type === 'string') {
+      message.type = message.type.trim().replace(/\s+/g, '_');
+    }
+
     try {
       this.socket?.send(JSON.stringify(message));
     } catch (err) {
@@ -147,6 +164,16 @@ export class WebSocketClient {
 
       if (data.type === ServerToClientEvents.UNIT_SELECTED) {
         this.emit(ServerToClientEvents.UNIT_SELECTED, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.MOVE_ACCEPTED) {
+        this.emit(ServerToClientEvents.MOVE_ACCEPTED, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.GAME_STATE_UPDATE) {
+        this.emit(ServerToClientEvents.GAME_STATE_UPDATE, data.payload);
         return;
       }
 
