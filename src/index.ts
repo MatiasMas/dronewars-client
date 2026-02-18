@@ -1,11 +1,22 @@
-import Phaser from "phaser";
-import {GameScene} from "./game/scenes/GameScene";
+import Phaser from 'phaser';
+import {GameScene} from "./scenes/GameScene";
 
-new Phaser.Game({
+const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
-    width: 800,
-    height: 600,
-    parent: "game",
-    backgroundColor: "#ffb0b0",
+    width: 1200,
+    height: 800,
+    backgroundColor: '#1a1a2e',
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: {
+                y: 0,
+                x: 0
+            },
+            debug: false
+        }
+    },
     scene: [GameScene]
-});
+};
+
+new Phaser.Game(config);
