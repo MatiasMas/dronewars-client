@@ -45,7 +45,7 @@ export class GameScene extends Phaser.Scene {
     this.websocketClient = new WebSocketClient();
 
     try {
-      // Setting websocket listeners
+      // Configurando listeners del websocket
       await this.websocketClient.connect();
     } catch (err) {
       console.error("[GameScene] Error connecting to server:", err);
@@ -55,10 +55,10 @@ export class GameScene extends Phaser.Scene {
 
     this.selectionManager = new SelectionManager();
 
-    // Registering player on server and waiting for server to confirm
+    // Registrando jugador en el servidor y esperando confirmación
     await this.waitForAvailablePlayers();
 
-    // Selecting the first player available and registering it on the server
+    // Seleccionando el primer jugador disponible y registrándolo en el servidor
     const selectedPlayerId = this.selectFirstAvailablePlayer();
     if (!selectedPlayerId) {
       this.showError('No players available');
@@ -134,13 +134,13 @@ export class GameScene extends Phaser.Scene {
   }
 
   /*
-  * This method is the one that sets up what to do when receiving a message from the server,
-  * It configures the events for the websocket
+  * Configura qué hacer al recibir mensajes del servidor
+  * Define los eventos del websocket
   */
   private setupEventListeners(): void {
     if (!this.websocketClient || !this.selectionManager) return;
 
-    // Server returns player's units list
+    // El servidor devuelve la lista de unidades del jugador
     this.websocketClient.on(ServerToClientEvents.UNITS_RECEIVED, (data: any) => {
       const playerUnits: IUnit[] = data.playerUnits;
       const enemyUnits: IUnit[] = data.enemyUnits;
@@ -154,7 +154,7 @@ export class GameScene extends Phaser.Scene {
       this.renderUnits(playerUnits, enemyUnits);
     });
 
-    // Server confirms unit selection
+    // El servidor confirma la selección de unidad
     this.websocketClient.on(ServerToClientEvents.UNIT_SELECTED, (unit: IUnit) => {
       console.log(`[GameScene] Selection confirmed: ${unit.unitId}`);
       this.selectionManager?.confirmSelection(unit);
@@ -162,7 +162,7 @@ export class GameScene extends Phaser.Scene {
       this.updateSelectedUnitCoordsText();
     });
 
-    // There has been a server error
+    // Hubo un error en el servidor
     this.websocketClient.on(ServerToClientEvents.SERVER_ERROR, (errorMessage: string) => {
       console.error(`[GameScene] Server error: ${errorMessage}`);
       this.showError(errorMessage);

@@ -1,9 +1,9 @@
 /*
- * CommunicationEvents defines all events that are transmitted between the client and server,
- * clients send an event; server processes the event with the name used here.
+ * CommunicationEvents define todos los eventos transmitidos entre cliente y servidor.
+ * Los clientes envían un evento; el servidor lo procesa con el nombre usado aquí.
  *
- * ServerToClient: When the server sends an event to the client
- * ClientToServer: When the client sends an event to the server
+ * ServerToClient: cuando el servidor envía un evento al cliente
+ * ClientToServer: cuando el cliente envía un evento al servidor
  */
 
 export enum ClientToServerEvents {
@@ -12,7 +12,7 @@ export enum ClientToServerEvents {
   SELECT_UNIT = 'SELECT_UNIT',
   MOVE_UNIT = 'MOVE_UNIT'
 
-  // In the future, movement or attacks events should be here
+  // En el futuro, los eventos de movimiento o ataques deberían ir aquí
 }
 
 export enum ServerToClientEvents {
@@ -24,12 +24,12 @@ export enum ServerToClientEvents {
   MOVE_ACCEPTED = 'MOVE_ACCEPTED',
   GAME_STATE_UPDATE = 'GAME_STATE_UPDATE'
 
-  // In the future, sync events should be here
+  // En el futuro, los eventos de sincronización deberían ir aquí
 }
 
 /*
- * These events are internal to the client, they are not sent to the server,
- * they are used to communicate between components like managers and scenes
+ * Estos eventos son internos del cliente, no se envían al servidor,
+ * y se usan para comunicar entre componentes como managers y escenas
  */
 export enum ClientInternalEvents {
   // SelectionManager
