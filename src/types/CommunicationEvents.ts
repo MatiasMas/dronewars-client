@@ -11,7 +11,9 @@ export enum ClientToServerEvents {
   GET_PLAYER_UNITS = 'GET_PLAYER_UNITS',
   SELECT_UNIT = 'SELECT_UNIT',
   // MOVE_UNIT: movimiento validado por servidor
-  MOVE_UNIT = 'MOVE_UNIT'
+  MOVE_UNIT = 'MOVE_UNIT',
+  // RELOAD_AMMO: recarga de municion validada por servidor
+  RELOAD_AMMO = 'RELOAD_AMMO'
 
   // En el futuro, los eventos de movimiento o ataques deberian ir aqui
 }

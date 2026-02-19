@@ -87,14 +87,26 @@ export class WebSocketClient {
   * Solicita movimiento de unidad al servidor
   * Mensaje: ClientToServerEvents.MOVE_UNIT
   */
-  public requestUnitMove(unitId: string, targetX: number, targetY: number, targetZ?: number): void {
+  public solicitarMovimientoUnidad(unidadId: string, objetivoX: number, objetivoY: number, objetivoZ?: number): void {
     // Envia MOVE_UNIT exacto y targetZ solo si viene definido
     this.send({
       type: 'MOVE_UNIT',
-      unitId: unitId,
-      targetX: targetX,
-      targetY: targetY,
-      ...(targetZ !== undefined ? { targetZ: targetZ } : {})
+      unitId: unidadId,
+      targetX: objetivoX,
+      targetY: objetivoY,
+      ...(objetivoZ !== undefined ? { targetZ: objetivoZ } : {})
+    });
+  }
+
+  /*
+  * Solicita recarga de municion al servidor
+  * Mensaje: ClientToServerEvents.RELOAD_AMMO
+  */
+  public solicitarRecargaMunicion(unidadId: string, portadronesId?: string): void {
+    this.send({
+      type: 'RELOAD_AMMO',
+      unitId: unidadId,
+      ...(portadronesId ? { carrierId: portadronesId } : {})
     });
   }
 
