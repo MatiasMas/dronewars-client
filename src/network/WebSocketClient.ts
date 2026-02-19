@@ -88,6 +88,7 @@ export class WebSocketClient {
   * Mensaje: ClientToServerEvents.MOVE_UNIT
   */
   public requestUnitMove(unitId: string, targetX: number, targetY: number, targetZ?: number): void {
+    // Envia MOVE_UNIT exacto y targetZ solo si viene definido
     this.send({
       type: 'MOVE_UNIT',
       unitId: unitId,
@@ -133,6 +134,7 @@ export class WebSocketClient {
     }
 
     if (message && typeof message.type === 'string') {
+      // Normaliza el type por seguridad ante espacios
       message.type = message.type.trim().replace(/\s+/g, '_');
     }
 

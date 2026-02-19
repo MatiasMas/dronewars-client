@@ -203,6 +203,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Movimiento por teclado: flechas + SHIFT/CTRL para altura
     const selectedUnit = this.selectionManager.getSelectedUnit();
     if (!selectedUnit) {
       return;
@@ -244,6 +245,7 @@ export class GameScene extends Phaser.Scene {
 
   // ------------- Interfaz -----------------
   private renderUnits(playerUnits: IUnit[], enemyUnits: IUnit[]): void {
+    // Render inicial de unidades con posiciones del servidor
     this.clearUnitSprites();
 
     playerUnits.forEach(unit => {
@@ -260,6 +262,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createUnitSprite(unit: IUnit, x: number, y: number, isPlayerUnit: boolean): void {
+    // Cada unidad se renderiza como un container con cuerpo y etiqueta
     const body = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
     body.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
     body.setInteractive({ useHandCursor: isPlayerUnit });
@@ -275,6 +278,7 @@ export class GameScene extends Phaser.Scene {
     body.on('pointerdown', () => {
       if (isPlayerUnit) {  // Solo puedes seleccionar tus unidades
         this.selectionManager?.selectUnit(unit.unitId);
+        // Inicia arrastre de esta unidad
         this.draggingUnitId = unit.unitId;
       }
     });
@@ -302,6 +306,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncUnitPositions(unitPositions: IUnitPosition[]): void {
+    // Sincroniza posiciones de todas las unidades con el estado enviado por el servidor
     unitPositions.forEach(update => {
       const unit = this.knownUnits.get(update.unitId);
       if (unit) {
@@ -328,6 +333,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
+    // Convierte coordenadas del mundo (0..200) a pantalla con padding
     const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
     const height = this.cameras.main.height - GameScene.MAP_PADDING * 2;
     const clampedX = Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X);
@@ -342,6 +348,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    // Convierte coordenadas de pantalla a mundo (0..200)
     const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
     const height = this.cameras.main.height - GameScene.MAP_PADDING * 2;
     const normalizedX = (screenX - GameScene.MAP_PADDING) / width;
@@ -423,6 +430,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateSelectedUnitCoordsText(): void {
+    // Muestra coordenadas de la unidad seleccionada
     if (!this.selectedUnitCoordsText) {
       return;
     }
@@ -442,6 +450,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupPointerControls(): void {
+    // Arrastrar para mover: pointerdown setea draggingUnitId, move envia target, up limpia
     this.input.on('pointerup', () => {
       this.draggingUnitId = null;
     });
@@ -473,6 +482,7 @@ export class GameScene extends Phaser.Scene {
       this.requestMove(this.draggingUnitId, worldTarget.x, worldTarget.y, unit.z);
     });
 
+    // Scroll para altura: wheel ajusta Z en pasos fijos
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
       if (!this.websocketClient || !this.selectionManager) {
         return;
@@ -499,6 +509,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private requestMove(unitId: string, targetX: number, targetY: number, targetZ: number): void {
+    // Punto unico de envio: aplica throttle y clamp antes de enviar al servidor
     if (!this.websocketClient) {
       return;
     }
@@ -516,6 +527,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    // Limites X/Y generales y Z segun jugador
     const maxZ = this.getMaxZForPlayer();
     const clampedX = Phaser.Math.Clamp(targetX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X);
     const clampedY = Phaser.Math.Clamp(targetY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y);
@@ -534,6 +546,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private getMaxZForPlayer(): number {
+    // player_1 tiene un pequeno bonus de altura
     const playerId = this.websocketClient?.getPlayerId();
     if (playerId === 'player_1') {
       return GameScene.MAP_MAX_Z * GameScene.MAP_MAX_Z_BONUS_FACTOR;

@@ -10,6 +10,7 @@ export enum ClientToServerEvents {
   REGISTER_PLAYER = 'REGISTER_PLAYER',
   GET_PLAYER_UNITS = 'GET_PLAYER_UNITS',
   SELECT_UNIT = 'SELECT_UNIT',
+  // MOVE_UNIT: movimiento validado por servidor
   MOVE_UNIT = 'MOVE_UNIT'
 
   // En el futuro, los eventos de movimiento o ataques deberian ir aqui
