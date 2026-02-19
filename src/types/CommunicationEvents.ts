@@ -1,9 +1,9 @@
 /*
  * CommunicationEvents define todos los eventos transmitidos entre cliente y servidor.
- * Los clientes envían un evento; el servidor lo procesa con el nombre usado aquí.
+ * Los clientes envian un evento; el servidor lo procesa con el nombre usado aqui.
  *
- * ServerToClient: cuando el servidor envía un evento al cliente
- * ClientToServer: cuando el cliente envía un evento al servidor
+ * ServerToClient: cuando el servidor envia un evento al cliente
+ * ClientToServer: cuando el cliente envia un evento al servidor
  */
 
 export enum ClientToServerEvents {
@@ -12,7 +12,7 @@ export enum ClientToServerEvents {
   SELECT_UNIT = 'SELECT_UNIT',
   MOVE_UNIT = 'MOVE_UNIT'
 
-  // En el futuro, los eventos de movimiento o ataques deberían ir aquí
+  // En el futuro, los eventos de movimiento o ataques deberian ir aqui
 }
 
 export enum ServerToClientEvents {
@@ -24,22 +24,23 @@ export enum ServerToClientEvents {
   MOVE_ACCEPTED = 'MOVE_ACCEPTED',
   GAME_STATE_UPDATE = 'GAME_STATE_UPDATE'
 
-  // En el futuro, los eventos de sincronización deberían ir aquí
+  // En el futuro, los eventos de sincronizacion deberian ir aqui
 }
 
 /*
- * Estos eventos son internos del cliente, no se envían al servidor,
+ * Estos eventos son internos del cliente, no se envian al servidor,
  * y se usan para comunicar entre componentes como managers y escenas
  */
 export enum ClientInternalEvents {
-  // SelectionManager
+  // Gestor de seleccion
   SELECTION_CHANGED = 'SELECTION_CHANGED',
   SELECTION_CONFIRMED = 'SELECTION_CONFIRMED',
   SELECTION_CLEARED = 'SELECTION_CLEARED',
   UNITS_UPDATED = 'UNITS_UPDATED',
 
-  // WebSocketClient
+  // Cliente WebSocket
   CONNECTED = 'CONNECTED',
   DISCONNECTED = 'DISCONNECTED',
   CONNECTION_ERROR = 'CONNECTION_ERROR',
 }
+

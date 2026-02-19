@@ -1,4 +1,4 @@
-// Un callback de evento es una función que se ejecuta cuando se recibe un evento específico
+// Un callback de evento es una funcion que se ejecuta cuando se recibe un evento especifico
 import {ClientInternalEvents, ClientToServerEvents, ServerToClientEvents} from "../types/CommunicationEvents";
 
 type EventCallback = (data?: any) => void;
@@ -10,11 +10,11 @@ export class WebSocketClient {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnected: boolean = false;
 
-  constructor(url: string = 'ws://localhost:8080/game') {
+  constructor(url: string = 'ws://localhost:8081/game') {
     this.url = url;
   }
 
-  // Conecta con el servidor y define eventos de conexión
+  // Conecta con el servidor y define eventos de conexion
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
@@ -73,7 +73,7 @@ export class WebSocketClient {
   }
 
   /*
-  * Solicita selección de unidad al servidor (validando que el jugador pueda seleccionarla)
+  * Solicita seleccion de unidad al servidor (validando que el jugador pueda seleccionarla)
   * Mensaje: ClientToServerEvents.SELECT_UNIT
   */
   public requestUnitSelection(unitId: string): void {
@@ -98,7 +98,7 @@ export class WebSocketClient {
   }
 
   /*
-  * Asigna un EventCallback según el evento recibido
+  * Asigna un EventCallback segun el evento recibido
   */
   public on(event: string, callback: EventCallback): void {
     if (!this.eventListeners.has(event)) {
@@ -124,7 +124,7 @@ export class WebSocketClient {
   }
 
   /*
-  * Envía un mensaje al servidor con el contenido provisto
+  * Envia un mensaje al servidor con el contenido provisto
   */
   private send(message: any): void {
     if (!this.isConnected) {
@@ -151,7 +151,7 @@ export class WebSocketClient {
     try {
       const data = JSON.parse(eventData);
 
-      // Si tiene type y es AVAILABLE_PLAYERS, el servidor envía la lista de jugadores disponibles
+      // Si tiene type y es AVAILABLE_PLAYERS, el servidor envia la lista de jugadores disponibles
       if (data.type === ServerToClientEvents.AVAILABLE_PLAYERS) {
         this.emit(ServerToClientEvents.AVAILABLE_PLAYERS, data.payload);
         return;
@@ -177,13 +177,13 @@ export class WebSocketClient {
         return;
       }
 
-      // Si data es un error, el servidor devolvió un error
+      // Si data es un error, el servidor devolvio un error
       if (data.type === ServerToClientEvents.SERVER_ERROR) {
         this.emit(ServerToClientEvents.SERVER_ERROR, data.payload);
         return;
       }
 
-      // Si no coincide con nada, envía el tipo recibido a los listeners
+      // Si no coincide con nada, envia el tipo recibido a los escuchas
       if (data.type) {
         this.emit(data.type, data);
       }
@@ -203,3 +203,4 @@ export class WebSocketClient {
     }
   }
 }
+

@@ -20,6 +20,7 @@ export class GameScene extends Phaser.Scene {
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private ascendKey: Phaser.Input.Keyboard.Key | null = null;
   private descendKey: Phaser.Input.Keyboard.Key | null = null;
+  private draggingUnitId: string | null = null;
   private lastMoveRequestAt = 0;
   private availablePlayers: IAvailablePlayer[] = [];
   private selectedUnitCoordsText: Phaser.GameObjects.Text | null = null;
@@ -45,7 +46,7 @@ export class GameScene extends Phaser.Scene {
     this.websocketClient = new WebSocketClient();
 
     try {
-      // Configurando listeners del websocket
+      // Configurando escuchas del websocket
       await this.websocketClient.connect();
     } catch (err) {
       console.error("[GameScene] Error connecting to server:", err);
@@ -55,10 +56,10 @@ export class GameScene extends Phaser.Scene {
 
     this.selectionManager = new SelectionManager();
 
-    // Registrando jugador en el servidor y esperando confirmación
+    // Registrando jugador en el servidor y esperando confirmacion
     await this.waitForAvailablePlayers();
 
-    // Seleccionando el primer jugador disponible y registrándolo en el servidor
+    // Seleccionando el primer jugador disponible y registrandolo en el servidor
     const selectedPlayerId = this.selectFirstAvailablePlayer();
     if (!selectedPlayerId) {
       this.showError('No players available');
@@ -76,6 +77,7 @@ export class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard?.createCursorKeys() ?? null;
     this.ascendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
     this.descendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL) ?? null;
+    this.setupPointerControls();
     this.input.keyboard?.addCapture([
       Phaser.Input.Keyboard.KeyCodes.UP,
       Phaser.Input.Keyboard.KeyCodes.DOWN,
@@ -134,7 +136,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   /*
-  * Configura qué hacer al recibir mensajes del servidor
+  * Configura que hacer al recibir mensajes del servidor
   * Define los eventos del websocket
   */
   private setupEventListeners(): void {
@@ -154,7 +156,7 @@ export class GameScene extends Phaser.Scene {
       this.renderUnits(playerUnits, enemyUnits);
     });
 
-    // El servidor confirma la selección de unidad
+    // El servidor confirma la seleccion de unidad
     this.websocketClient.on(ServerToClientEvents.UNIT_SELECTED, (unit: IUnit) => {
       console.log(`[GameScene] Selection confirmed: ${unit.unitId}`);
       this.selectionManager?.confirmSelection(unit);
@@ -187,6 +189,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
+      this.draggingUnitId = null;
       this.updateSelectedUnitCoordsText();
     });
 
@@ -197,10 +200,6 @@ export class GameScene extends Phaser.Scene {
 
   update(time: number): void {
     if (!this.websocketClient || !this.selectionManager || !this.cursors) {
-      return;
-    }
-
-    if (time - this.lastMoveRequestAt < GameScene.MOVE_REPEAT_MS) {
       return;
     }
 
@@ -236,19 +235,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     const currentUnit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
-    const targetX = Phaser.Math.Clamp(currentUnit.x + dx, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X);
-    const targetY = Phaser.Math.Clamp(currentUnit.y + dy, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y);
-    const playerId = this.websocketClient?.getPlayerId();
-    const maxZ = playerId === 'player_1'
-      ? GameScene.MAP_MAX_Z * GameScene.MAP_MAX_Z_BONUS_FACTOR
-      : GameScene.MAP_MAX_Z;
-    const targetZ = Phaser.Math.Clamp(currentUnit.z + dz, GameScene.MAP_MIN_Z, maxZ);
+    const targetX = currentUnit.x + dx;
+    const targetY = currentUnit.y + dy;
+    const targetZ = currentUnit.z + dz;
 
-    this.websocketClient.requestUnitMove(selectedUnit.unitId, targetX, targetY, targetZ);
-    this.lastMoveRequestAt = time;
+    this.requestMove(selectedUnit.unitId, targetX, targetY, targetZ);
   }
 
-  // ------------- UI -----------------
+  // ------------- Interfaz -----------------
   private renderUnits(playerUnits: IUnit[], enemyUnits: IUnit[]): void {
     this.clearUnitSprites();
 
@@ -281,6 +275,7 @@ export class GameScene extends Phaser.Scene {
     body.on('pointerdown', () => {
       if (isPlayerUnit) {  // Solo puedes seleccionar tus unidades
         this.selectionManager?.selectUnit(unit.unitId);
+        this.draggingUnitId = unit.unitId;
       }
     });
 
@@ -343,6 +338,20 @@ export class GameScene extends Phaser.Scene {
     return {
       x: GameScene.MAP_PADDING + normalizedX * width,
       y: GameScene.MAP_PADDING + normalizedY * height
+    };
+  }
+
+  private screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
+    const height = this.cameras.main.height - GameScene.MAP_PADDING * 2;
+    const normalizedX = (screenX - GameScene.MAP_PADDING) / width;
+    const normalizedY = (screenY - GameScene.MAP_PADDING) / height;
+    const worldX = GameScene.MAP_MIN_X + normalizedX * (GameScene.MAP_MAX_X - GameScene.MAP_MIN_X);
+    const worldY = GameScene.MAP_MIN_Y + normalizedY * (GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y);
+
+    return {
+      x: Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X),
+      y: Phaser.Math.Clamp(worldY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y)
     };
   }
 
@@ -430,5 +439,106 @@ export class GameScene extends Phaser.Scene {
     const z = unit.z.toFixed(1);
 
     this.selectedUnitCoordsText.setText(`Coords: ${x}, ${y}, ${z}`);
+  }
+
+  private setupPointerControls(): void {
+    this.input.on('pointerup', () => {
+      this.draggingUnitId = null;
+    });
+
+    this.input.on('pointerupoutside', () => {
+      this.draggingUnitId = null;
+    });
+
+    this.input.on('gameout', () => {
+      this.draggingUnitId = null;
+    });
+
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.isDown) {
+        this.draggingUnitId = null;
+        return;
+      }
+
+      if (!this.draggingUnitId) {
+        return;
+      }
+
+      const unit = this.knownUnits.get(this.draggingUnitId);
+      if (!unit) {
+        return;
+      }
+
+      const worldTarget = this.screenToWorld(pointer.x, pointer.y);
+      this.requestMove(this.draggingUnitId, worldTarget.x, worldTarget.y, unit.z);
+    });
+
+    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
+      if (!this.websocketClient || !this.selectionManager) {
+        return;
+      }
+
+      const selectedUnit = this.selectionManager.getSelectedUnit();
+      if (!selectedUnit) {
+        return;
+      }
+
+      if (!this.playerUnitIds.has(selectedUnit.unitId)) {
+        return;
+      }
+
+      const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+      const direction = Math.sign(deltaY);
+      if (direction === 0) {
+        return;
+      }
+
+      const dz = direction > 0 ? -GameScene.ALTITUDE_STEP : GameScene.ALTITUDE_STEP;
+      this.requestMove(selectedUnit.unitId, unit.x, unit.y, unit.z + dz);
+    });
+  }
+
+  private requestMove(unitId: string, targetX: number, targetY: number, targetZ: number): void {
+    if (!this.websocketClient) {
+      return;
+    }
+
+    if (!this.playerUnitIds.has(unitId)) {
+      return;
+    }
+
+    const now = this.getNowMs();
+    if (now < this.lastMoveRequestAt) {
+      this.lastMoveRequestAt = 0;
+    }
+
+    if (now - this.lastMoveRequestAt < GameScene.MOVE_REPEAT_MS) {
+      return;
+    }
+
+    const maxZ = this.getMaxZForPlayer();
+    const clampedX = Phaser.Math.Clamp(targetX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X);
+    const clampedY = Phaser.Math.Clamp(targetY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y);
+    const clampedZ = Phaser.Math.Clamp(targetZ, GameScene.MAP_MIN_Z, maxZ);
+
+    this.websocketClient.requestUnitMove(unitId, clampedX, clampedY, clampedZ);
+    this.lastMoveRequestAt = now;
+  }
+
+  private getNowMs(): number {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now();
+    }
+
+    return Date.now();
+  }
+
+  private getMaxZForPlayer(): number {
+    const playerId = this.websocketClient?.getPlayerId();
+    if (playerId === 'player_1') {
+      return GameScene.MAP_MAX_Z * GameScene.MAP_MAX_Z_BONUS_FACTOR;
+    }
+
+    return GameScene.MAP_MAX_Z;
   }
 }
