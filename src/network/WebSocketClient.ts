@@ -126,6 +126,13 @@ export class WebSocketClient {
     }
   }
 
+  public requestBombAttack(unitId: string): void {
+    this.send({
+      type: ClientToServerEvents.LAUNCH_BOMB,
+      unitId: unitId
+    });
+  }
+
   /*
   * This method handles messages received from the server
   * It parses the message and emits the event to the clients
@@ -159,6 +166,15 @@ export class WebSocketClient {
       // If none of the above matches just sent the message type from the server to the listeners
       if (data.type) {
         this.emit(data.type, data);
+      }
+      if (data.type === ServerToClientEvents.BOMB_LAUNCHED) {
+        this.emit(ServerToClientEvents.BOMB_LAUNCHED, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.BOMB_EXPLODED) {
+        this.emit(ServerToClientEvents.BOMB_EXPLODED, data.payload);
+        return;
       }
     } catch (err) {
       console.log("[WebSocket] Error parsing message:", err);

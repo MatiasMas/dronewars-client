@@ -9,7 +9,8 @@
 export enum ClientToServerEvents {
   REGISTER_PLAYER = 'REGISTER_PLAYER',
   GET_PLAYER_UNITS = 'GET_PLAYER_UNITS',
-  SELECT_UNIT = 'SELECT_UNIT'
+  SELECT_UNIT = 'SELECT_UNIT',
+  LAUNCH_BOMB = 'LAUNCH_BOMB'
 
   // In the future, movement or attacks events should be here
 }
@@ -19,7 +20,9 @@ export enum ServerToClientEvents {
   UNITS_RECEIVED = 'UNITS_RECEIVED',
   UNIT_SELECTED = 'UNIT_SELECTED',
   SERVER_ERROR = 'SERVER_ERROR',
-  AVAILABLE_PLAYERS = 'AVAILABLE_PLAYERS'
+  AVAILABLE_PLAYERS = 'AVAILABLE_PLAYERS',
+  BOMB_LAUNCHED = 'BOMB_LAUNCHED',
+  BOMB_EXPLODED = 'BOMB_EXPLODED'
 
   // In the future, sync events should be here
 }
@@ -40,3 +43,4 @@ export enum ClientInternalEvents {
   DISCONNECTED = 'DISCONNECTED',
   CONNECTION_ERROR = 'CONNECTION_ERROR',
 }
+
