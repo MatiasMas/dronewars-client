@@ -3,17 +3,43 @@ import {SelectionManager} from "../managers/SelectionManager";
 import {ClientInternalEvents, ServerToClientEvents} from "../types/CommunicationEvents";
 import {IUnit} from "../types/IUnit";
 import {IAvailablePlayer} from "../types/IAvailablePlayer";
-import { UnitType } from "../types/UnitType";
-import { IBombLaunched } from "../types/IBombLaunched";
-import { IBombExploded } from "../types/IBombExploded";
+import {UnitType} from "../types/UnitType";
+import {IBombLaunched} from "../types/IBombLaunched";
+import {IBombExploded} from "../types/IBombExploded";
+import {IUnitPosition} from "../types/IUnitPosition";
+
+type UnitVisual = {
+  container: Phaser.GameObjects.Container;
+  body: Phaser.GameObjects.Rectangle;
+  label: Phaser.GameObjects.Text;
+};
 
 export class GameScene extends Phaser.Scene {
   private websocketClient: WebSocketClient | null = null;
   private selectionManager: SelectionManager | null = null;
-  private unitSprites: Map<string, Phaser.GameObjects.Rectangle> = new Map();
+  private unitSprites: Map<string, UnitVisual> = new Map();
+  private knownUnits: Map<string, IUnit> = new Map();
+  private playerUnitIds: Set<string> = new Set();
+  private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
+  private ascendKey: Phaser.Input.Keyboard.Key | null = null;
+  private descendKey: Phaser.Input.Keyboard.Key | null = null;
+  private draggingUnitId: string | null = null;
+  private lastMoveRequestAt = 0;
   private availablePlayers: IAvailablePlayer[] = [];
   private bombSprites: Map<string, Phaser.GameObjects.Ellipse> = new Map();
   private unitHealthLabels: Map<string, Phaser.GameObjects.Text> = new Map();
+  private selectedUnitCoordsText: Phaser.GameObjects.Text | null = null;
+  private static readonly MAP_MIN_X = 0;
+  private static readonly MAP_MAX_X = 200;
+  private static readonly MAP_MIN_Y = 0;
+  private static readonly MAP_MAX_Y = 200;
+  private static readonly MAP_MIN_Z = 0;
+  private static readonly MAP_MAX_Z = 10;
+  private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.005;
+  private static readonly MAP_PADDING = 60;
+  private static readonly MOVE_STEP = 5;
+  private static readonly ALTITUDE_STEP = 0.5;
+  private static readonly MOVE_REPEAT_MS = 120;
 
   constructor() {
     super('GameScene');
@@ -25,7 +51,7 @@ export class GameScene extends Phaser.Scene {
     this.websocketClient = new WebSocketClient();
 
     try {
-      // Setting websocket listeners
+      // Configurando escuchas del websocket
       await this.websocketClient.connect();
     } catch (err) {
       console.error("[GameScene] Error connecting to server:", err);
@@ -35,10 +61,10 @@ export class GameScene extends Phaser.Scene {
 
     this.selectionManager = new SelectionManager();
 
-    // Registering player on server and waiting for server to confirm
+    // Registrando jugador en el servidor y esperando confirmacion
     await this.waitForAvailablePlayers();
 
-    // Selecting the first player available and registering it on the server
+    // Seleccionando el primer jugador disponible y registrandolo en el servidor
     const selectedPlayerId = this.selectFirstAvailablePlayer();
     if (!selectedPlayerId) {
       this.showError('No players available');
@@ -53,6 +79,19 @@ export class GameScene extends Phaser.Scene {
     this.setupEventListeners();
     this.drawUI();
     this.createBombAttackButton();
+    this.updateSelectedUnitCoordsText();
+    this.cursors = this.input.keyboard?.createCursorKeys() ?? null;
+    this.ascendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
+    this.descendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL) ?? null;
+    this.setupPointerControls();
+    this.input.keyboard?.addCapture([
+      Phaser.Input.Keyboard.KeyCodes.UP,
+      Phaser.Input.Keyboard.KeyCodes.DOWN,
+      Phaser.Input.Keyboard.KeyCodes.LEFT,
+      Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      Phaser.Input.Keyboard.KeyCodes.SHIFT,
+      Phaser.Input.Keyboard.KeyCodes.CTRL
+    ]);
   }
 
   private async waitForAvailablePlayers(): Promise<void> {
@@ -72,8 +111,8 @@ export class GameScene extends Phaser.Scene {
         });
 
         resolve();
-      })
-    })
+      });
+    });
   }
 
   private selectFirstAvailablePlayer(): string | null {
@@ -103,39 +142,47 @@ export class GameScene extends Phaser.Scene {
   }
 
   /*
-  * This method is the one that sets up what to do when receiving a message from the server,
-  * It configures the events for the websocket
+  * Configura que hacer al recibir mensajes del servidor
+  * Define los eventos del websocket
   */
   private setupEventListeners(): void {
     if (!this.websocketClient || !this.selectionManager) return;
 
-    // Server returns player's units list
+    // El servidor devuelve la lista de unidades del jugador
     this.websocketClient.on(ServerToClientEvents.UNITS_RECEIVED, (data: any) => {
       const playerUnits: IUnit[] = data.playerUnits;
       const enemyUnits: IUnit[] = data.enemyUnits;
 
       console.log(`[GameScene] Received ${playerUnits.length} units for player and ${enemyUnits.length} units for enemy from server`);
+      this.knownUnits.clear();
+      playerUnits.forEach(unit => this.knownUnits.set(unit.unitId, unit));
+      enemyUnits.forEach(unit => this.knownUnits.set(unit.unitId, unit));
+      this.playerUnitIds = new Set(playerUnits.map(unit => unit.unitId));
       this.selectionManager?.setPlayerUnits(playerUnits);
       this.renderUnits(playerUnits, enemyUnits);
     });
 
-    // Server confirms unit selection
+    // El servidor confirma la seleccion de unidad
     this.websocketClient.on(ServerToClientEvents.UNIT_SELECTED, (unit: IUnit) => {
       console.log(`[GameScene] Selection confirmed: ${unit.unitId}`);
       this.selectionManager?.confirmSelection(unit);
       this.highlightUnit(unit.unitId);
+      this.updateSelectedUnitCoordsText();
     });
 
-    // There has been a server error
+    // Hubo un error en el servidor
     this.websocketClient.on(ServerToClientEvents.SERVER_ERROR, (errorMessage: string) => {
       console.error(`[GameScene] Server error: ${errorMessage}`);
       this.showError(errorMessage);
     });
 
-    this.selectionManager.on(ClientInternalEvents.SELECTION_CHANGED, (unit: IUnit) => {
-      console.log(`[GameScene] Selection changed: ${unit.unitId}, sendind selection to server...`);
-      this.websocketClient?.requestUnitSelection(unit.unitId);
-    })
+    this.websocketClient.on(ServerToClientEvents.MOVE_ACCEPTED, (unitId: string) => {
+      console.log(`[GameScene] Move accepted: ${unitId}`);
+    });
+
+    this.websocketClient.on(ServerToClientEvents.GAME_STATE_UPDATE, (unitPositions: IUnitPosition[]) => {
+      this.syncUnitPositions(unitPositions);
+    });
 
     this.websocketClient.on(ServerToClientEvents.BOMB_LAUNCHED, (payload: IBombLaunched) => {
       this.handleBombLaunched(payload);
@@ -144,68 +191,203 @@ export class GameScene extends Phaser.Scene {
     this.websocketClient.on(ServerToClientEvents.BOMB_EXPLODED, (payload: IBombExploded) => {
       this.handleBombExploded(payload);
     });
-  }
 
-  // ------------- UI -----------------
-  private renderUnits(playerUnits: IUnit[], enemyUnits: IUnit[]): void {
-    const centerX = this.cameras.main.centerX;
-    const centerY = this.cameras.main.centerY;
-
-    playerUnits.forEach((unit, index) => {
-      const x = centerX - 350;
-      const y = centerY - 150 + index * 120;
-      this.createUnitSprite(unit, x, y, true);  // true = unidad propia
+    this.selectionManager.on(ClientInternalEvents.SELECTION_CHANGED, (unit: IUnit) => {
+      console.log(`[GameScene] Selection changed: ${unit.unitId}, sendind selection to server...`);
+      this.websocketClient?.requestUnitSelection(unit.unitId);
+      this.updateSelectedUnitCoordsText();
     });
 
-    // ✨ NUEVO: Renderizar unidades enemigas a la derecha
-    enemyUnits.forEach((unit, index) => {
-      const x = centerX + 250;
-      const y = centerY - 150 + index * 120;
-      this.createUnitSprite(unit, x, y, false); // false = unidad enemiga
+    this.selectionManager.on(ClientInternalEvents.SELECTION_CONFIRMED, () => {
+      this.updateSelectedUnitCoordsText();
+    });
+
+    this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
+      this.draggingUnitId = null;
+      this.updateSelectedUnitCoordsText();
+    });
+
+    this.selectionManager.on(ClientInternalEvents.UNITS_UPDATED, () => {
+      this.updateSelectedUnitCoordsText();
+    });
+  }
+
+  update(time: number): void {
+    if (!this.websocketClient || !this.selectionManager || !this.cursors) {
+      return;
+    }
+
+    // Movimiento por teclado: flechas + SHIFT/CTRL para altura
+    const selectedUnit = this.selectionManager.getSelectedUnit();
+    if (!selectedUnit) {
+      return;
+    }
+
+    let dx = 0;
+    let dy = 0;
+    let dz = 0;
+
+    if (this.cursors.left?.isDown) {
+      dx -= GameScene.MOVE_STEP;
+    } else if (this.cursors.right?.isDown) {
+      dx += GameScene.MOVE_STEP;
+    }
+
+    if (this.cursors.up?.isDown) {
+      dy -= GameScene.MOVE_STEP;
+    } else if (this.cursors.down?.isDown) {
+      dy += GameScene.MOVE_STEP;
+    }
+
+    if (this.ascendKey?.isDown) {
+      dz += GameScene.ALTITUDE_STEP;
+    } else if (this.descendKey?.isDown) {
+      dz -= GameScene.ALTITUDE_STEP;
+    }
+
+    if (dx === 0 && dy === 0 && dz === 0) {
+      return;
+    }
+
+    const currentUnit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+    const targetX = currentUnit.x + dx;
+    const targetY = currentUnit.y + dy;
+    const targetZ = currentUnit.z + dz;
+
+    this.requestMove(selectedUnit.unitId, targetX, targetY, targetZ);
+  }
+
+  // ------------- Interfaz -----------------
+  private renderUnits(playerUnits: IUnit[], enemyUnits: IUnit[]): void {
+    // Render inicial de unidades con posiciones del servidor
+    this.clearUnitSprites();
+
+    playerUnits.forEach(unit => {
+      const screenPosition = this.worldToScreen(unit.x, unit.y);
+      this.createUnitSprite(unit, screenPosition.x, screenPosition.y, true);  // true = unidad propia
+    });
+
+    enemyUnits.forEach(unit => {
+      const screenPosition = this.worldToScreen(unit.x, unit.y);
+      this.createUnitSprite(unit, screenPosition.x, screenPosition.y, false); // false = unidad enemiga
     });
 
     console.log(`[GameScene] ${playerUnits.length} player units and ${enemyUnits.length} enemy units rendered`);
   }
+
   private createUnitSprite(unit: IUnit, x: number, y: number, isPlayerUnit: boolean): void {
-    const sprite = this.add.rectangle(x, y, 60, 60, this.getUnitColor(unit.type));
+    // Cada unidad se renderiza como un container con cuerpo y etiqueta
+    const body = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
+    body.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
+    body.setInteractive({useHandCursor: isPlayerUnit});
 
-    sprite.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
-    sprite.setInteractive({ useHandCursor: true });
-
-    sprite.on('pointerdown', () => {
-      if (isPlayerUnit) {
-        this.selectionManager?.selectUnit(unit.unitId);
-      }
-    });
-
-    sprite.on('pointerover', () => sprite.setScale(1.1));
-    sprite.on('pointerout', () => sprite.setScale(1));
-
-    this.unitSprites.set(unit.unitId, sprite);
-
-    this.add.text(x, y - 8, this.getUnitLabel(unit.type), {
+    const label = this.add.text(0, 0, this.getUnitLabel(unit.type), {
       fontSize: '12px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+
     const hpText = this.add.text(x, y + 16, `HP:${unit.health}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
 
+    const container = this.add.container(x, y, [body, label]);
+
+    this.add.text(x, y - 8, this.getUnitLabel(unit.type), {
+      fontSize: '12px',
+      color: '#ffffff',
+      align: 'center'
+    }).setOrigin(0.5);
+
     this.unitHealthLabels.set(unit.unitId, hpText);
+
+    body.on('pointerdown', () => {
+      if (isPlayerUnit) {  // Solo puedes seleccionar tus unidades
+        this.selectionManager?.selectUnit(unit.unitId);
+        // Inicia arrastre de esta unidad
+        this.draggingUnitId = unit.unitId;
+      }
+    });
+
+    body.on('pointerover', () => container.setScale(1.1));
+    body.on('pointerout', () => container.setScale(1));
+
+    this.unitSprites.set(unit.unitId, {container, body, label});
   }
 
   private highlightUnit(unitId: string): void {
     this.unitSprites.forEach(sprite => {
-      sprite.setStrokeStyle(2, 0x888888);
+      sprite.body.setStrokeStyle(2, 0x888888);
     });
 
     const selectedSprite = this.unitSprites.get(unitId);
     if (selectedSprite) {
-      selectedSprite.setStrokeStyle(4, 0xffff00);
+      selectedSprite.body.setStrokeStyle(4, 0xffff00);
     }
+  }
+
+  private clearUnitSprites(): void {
+    this.unitSprites.forEach(sprite => sprite.container.destroy());
+    this.unitSprites.clear();
+  }
+
+  private syncUnitPositions(unitPositions: IUnitPosition[]): void {
+    // Sincroniza posiciones de todas las unidades con el estado enviado por el servidor
+    unitPositions.forEach(update => {
+      const unit = this.knownUnits.get(update.unitId);
+      if (unit) {
+        unit.x = update.position.x;
+        unit.y = update.position.y;
+        unit.z = update.position.z;
+      }
+
+      if (this.playerUnitIds.has(update.unitId)) {
+        this.selectionManager?.updateUnitPosition(update.unitId, update.position);
+      }
+
+      const sprite = this.unitSprites.get(update.unitId);
+      const screenPosition = this.worldToScreen(update.position.x, update.position.y);
+
+      if (sprite) {
+        sprite.container.setPosition(screenPosition.x, screenPosition.y);
+      } else if (unit) {
+        this.createUnitSprite(unit, screenPosition.x, screenPosition.y, this.playerUnitIds.has(update.unitId));
+      }
+    });
+
+    this.updateSelectedUnitCoordsText();
+  }
+
+  private worldToScreen(worldX: number, worldY: number): { x: number; y: number } {
+    // Convierte coordenadas del mundo (0..200) a pantalla con padding
+    const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
+    const height = this.cameras.main.height - GameScene.MAP_PADDING * 2;
+    const clampedX = Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X);
+    const clampedY = Phaser.Math.Clamp(worldY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y);
+    const normalizedX = (clampedX - GameScene.MAP_MIN_X) / (GameScene.MAP_MAX_X - GameScene.MAP_MIN_X);
+    const normalizedY = (clampedY - GameScene.MAP_MIN_Y) / (GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y);
+
+    return {
+      x: GameScene.MAP_PADDING + normalizedX * width,
+      y: GameScene.MAP_PADDING + normalizedY * height
+    };
+  }
+
+  private screenToWorld(screenX: number, screenY: number): { x: number; y: number } {
+    // Convierte coordenadas de pantalla a mundo (0..200)
+    const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
+    const height = this.cameras.main.height - GameScene.MAP_PADDING * 2;
+    const normalizedX = (screenX - GameScene.MAP_PADDING) / width;
+    const normalizedY = (screenY - GameScene.MAP_PADDING) / height;
+    const worldX = GameScene.MAP_MIN_X + normalizedX * (GameScene.MAP_MAX_X - GameScene.MAP_MIN_X);
+    const worldY = GameScene.MAP_MIN_Y + normalizedY * (GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y);
+
+    return {
+      x: Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X),
+      y: Phaser.Math.Clamp(worldY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y)
+    };
   }
 
   private getUnitColor(type: string): number {
@@ -233,7 +415,7 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.centerX,
       this.cameras.main.centerY,
       'Error: ' + message,
-      { fontSize: '20px', color: '#ff0000' }
+      {fontSize: '20px', color: '#ff0000'}
     ).setOrigin(0.5);
   }
 
@@ -250,22 +432,29 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.centerX,
       30,
       'DroneWars',
-      { fontSize: '24px', color: '#00ff00', fontStyle: 'bold' }
+      {fontSize: '24px', color: '#00ff00', fontStyle: 'bold'}
     ).setOrigin(0.5);
 
     this.add.text(
       20,
       70,
       'Click a drone to select it',
-      { fontSize: '14px', color: '#cccccc' }
+      {fontSize: '14px', color: '#cccccc'}
     );
 
     this.add.text(
       20,
       this.cameras.main.height - 40,
       'Connected to the server',
-      { fontSize: '12px', color: '#00ff00' }
+      {fontSize: '12px', color: '#00ff00'}
     );
+
+    this.selectedUnitCoordsText = this.add.text(
+      this.cameras.main.width - 20,
+      20,
+      'Selected: none',
+      {fontSize: '14px', color: '#ffffff', align: 'right'}
+    ).setOrigin(1, 0);
   }
 
   private createBombAttackButton(): void {
@@ -273,8 +462,8 @@ export class GameScene extends Phaser.Scene {
     const y = 120;
 
     const button = this.add.rectangle(x, y, 220, 44, 0x8b0000)
-        .setStrokeStyle(2, 0xffd166)
-        .setInteractive({ useHandCursor: true });
+      .setStrokeStyle(2, 0xffd166)
+      .setInteractive({useHandCursor: true});
 
     this.add.text(x, y, 'Lanzar Bomba (Click Izq)', {
       fontSize: '14px',
@@ -305,7 +494,6 @@ export class GameScene extends Phaser.Scene {
     this.websocketClient?.requestBombAttack(selectedUnit.unitId);
   }
 
-
   private handleBombLaunched(payload: IBombLaunched): void {
     const bomb = this.add.ellipse(payload.x, payload.y, 12, 12, 0xffaa00);
     bomb.setStrokeStyle(2, 0xff0000);
@@ -331,7 +519,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const blast = this.add.circle(payload.x, payload.y, 32, 0xff5500, 0.45)
-        .setStrokeStyle(2, 0xffdd00);
+      .setStrokeStyle(2, 0xffdd00);
 
     this.tweens.add({
       targets: blast,
@@ -359,11 +547,137 @@ export class GameScene extends Phaser.Scene {
           duration: 90
         });
 
-        if (unit.health <= 0) {
-          sprite.setFillStyle(0x333333);
-          sprite.disableInteractive();
-        }
+        // if (unit.health <= 0) {
+        //   sprite.setFillStyle(0x333333);
+        //   sprite.disableInteractive();
+        // }
       }
     });
+  }
+
+  private updateSelectedUnitCoordsText(): void {
+    // Muestra coordenadas de la unidad seleccionada
+    if (!this.selectedUnitCoordsText) {
+      return;
+    }
+
+    const selectedUnit = this.selectionManager?.getSelectedUnit();
+    if (!selectedUnit) {
+      this.selectedUnitCoordsText.setText('Selected: none');
+      return;
+    }
+
+    const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+    const x = unit.x.toFixed(1);
+    const y = unit.y.toFixed(1);
+    const z = unit.z.toFixed(1);
+
+    this.selectedUnitCoordsText.setText(`Coords: ${x}, ${y}, ${z}`);
+  }
+
+  private setupPointerControls(): void {
+    // Arrastrar para mover: pointerdown setea draggingUnitId, move envia target, up limpia
+    this.input.on('pointerup', () => {
+      this.draggingUnitId = null;
+    });
+
+    this.input.on('pointerupoutside', () => {
+      this.draggingUnitId = null;
+    });
+
+    this.input.on('gameout', () => {
+      this.draggingUnitId = null;
+    });
+
+    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.isDown) {
+        this.draggingUnitId = null;
+        return;
+      }
+
+      if (!this.draggingUnitId) {
+        return;
+      }
+
+      const unit = this.knownUnits.get(this.draggingUnitId);
+      if (!unit) {
+        return;
+      }
+
+      const worldTarget = this.screenToWorld(pointer.x, pointer.y);
+      this.requestMove(this.draggingUnitId, worldTarget.x, worldTarget.y, unit.z);
+    });
+
+    // Scroll para altura: wheel ajusta Z en pasos fijos
+    this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
+      if (!this.websocketClient || !this.selectionManager) {
+        return;
+      }
+
+      const selectedUnit = this.selectionManager.getSelectedUnit();
+      if (!selectedUnit) {
+        return;
+      }
+
+      if (!this.playerUnitIds.has(selectedUnit.unitId)) {
+        return;
+      }
+
+      const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+      const direction = Math.sign(deltaY);
+      if (direction === 0) {
+        return;
+      }
+
+      const dz = direction > 0 ? -GameScene.ALTITUDE_STEP : GameScene.ALTITUDE_STEP;
+      this.requestMove(selectedUnit.unitId, unit.x, unit.y, unit.z + dz);
+    });
+  }
+
+  private requestMove(unitId: string, targetX: number, targetY: number, targetZ: number): void {
+    // Punto unico de envio: aplica throttle y clamp antes de enviar al servidor
+    if (!this.websocketClient) {
+      return;
+    }
+
+    if (!this.playerUnitIds.has(unitId)) {
+      return;
+    }
+
+    const now = this.getNowMs();
+    if (now < this.lastMoveRequestAt) {
+      this.lastMoveRequestAt = 0;
+    }
+
+    if (now - this.lastMoveRequestAt < GameScene.MOVE_REPEAT_MS) {
+      return;
+    }
+
+    // Limites X/Y generales y Z segun jugador
+    const maxZ = this.getMaxZForPlayer();
+    const clampedX = Phaser.Math.Clamp(targetX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X);
+    const clampedY = Phaser.Math.Clamp(targetY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y);
+    const clampedZ = Phaser.Math.Clamp(targetZ, GameScene.MAP_MIN_Z, maxZ);
+
+    this.websocketClient.requestUnitMove(unitId, clampedX, clampedY, clampedZ);
+    this.lastMoveRequestAt = now;
+  }
+
+  private getNowMs(): number {
+    if (typeof performance !== 'undefined' && typeof performance.now === 'function') {
+      return performance.now();
+    }
+
+    return Date.now();
+  }
+
+  private getMaxZForPlayer(): number {
+    // player_1 tiene un pequeno bonus de altura
+    const playerId = this.websocketClient?.getPlayerId();
+    if (playerId === 'player_1') {
+      return GameScene.MAP_MAX_Z * GameScene.MAP_MAX_Z_BONUS_FACTOR;
+    }
+
+    return GameScene.MAP_MAX_Z;
   }
 }

@@ -1,18 +1,17 @@
 /*
- * CommunicationEvents defines all events that are transmitted between the client and server,
- * clients send an event; server processes the event with the name used here.
+ * CommunicationEvents define todos los eventos transmitidos entre cliente y servidor.
+ * Los clientes envian un evento; el servidor lo procesa con el nombre usado aqui.
  *
- * ServerToClient: When the server sends an event to the client
- * ClientToServer: When the client sends an event to the server
+ * ServerToClient: cuando el servidor envia un evento al cliente
+ * ClientToServer: cuando el cliente envia un evento al servidor
  */
 
 export enum ClientToServerEvents {
   REGISTER_PLAYER = 'REGISTER_PLAYER',
   GET_PLAYER_UNITS = 'GET_PLAYER_UNITS',
   SELECT_UNIT = 'SELECT_UNIT',
-  LAUNCH_BOMB = 'LAUNCH_BOMB'
-
-  // In the future, movement or attacks events should be here
+  LAUNCH_BOMB = 'LAUNCH_BOMB',
+  MOVE_UNIT = 'MOVE_UNIT'
 }
 
 export enum ServerToClientEvents {
@@ -22,23 +21,23 @@ export enum ServerToClientEvents {
   SERVER_ERROR = 'SERVER_ERROR',
   AVAILABLE_PLAYERS = 'AVAILABLE_PLAYERS',
   BOMB_LAUNCHED = 'BOMB_LAUNCHED',
-  BOMB_EXPLODED = 'BOMB_EXPLODED'
-
-  // In the future, sync events should be here
+  BOMB_EXPLODED = 'BOMB_EXPLODED',
+  MOVE_ACCEPTED = 'MOVE_ACCEPTED',
+  GAME_STATE_UPDATE = 'GAME_STATE_UPDATE'
 }
 
 /*
- * These events are internal to the client, they are not sent to the server,
- * they are used to communicate between components like managers and scenes
+ * Estos eventos son internos del cliente, no se envian al servidor,
+ * y se usan para comunicar entre componentes como managers y escenas
  */
 export enum ClientInternalEvents {
-  // SelectionManager
+  // Gestor de seleccion
   SELECTION_CHANGED = 'SELECTION_CHANGED',
   SELECTION_CONFIRMED = 'SELECTION_CONFIRMED',
   SELECTION_CLEARED = 'SELECTION_CLEARED',
   UNITS_UPDATED = 'UNITS_UPDATED',
 
-  // WebSocketClient
+  // Cliente WebSocket
   CONNECTED = 'CONNECTED',
   DISCONNECTED = 'DISCONNECTED',
   CONNECTION_ERROR = 'CONNECTION_ERROR',
