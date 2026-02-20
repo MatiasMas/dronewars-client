@@ -25,6 +25,10 @@ export class GameScene extends Phaser.Scene {
   private lastMoveRequestAt = 0;
   private availablePlayers: IAvailablePlayer[] = [];
   private selectedUnitCoordsText: Phaser.GameObjects.Text | null = null;
+  private selectedUnitArmamentoText: Phaser.GameObjects.Text | null = null;
+  private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
+  private armamentoEnemyText: Phaser.GameObjects.Text | null = null;
+  private ammoByUnitId: Map<string, number> = new Map();
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
   private fondoBotonRecarga: Phaser.GameObjects.Rectangle | null = null;
@@ -40,6 +44,8 @@ export class GameScene extends Phaser.Scene {
   private static readonly ALTITUDE_STEP = 0.5;
   private static readonly MOVE_REPEAT_MS = 120;
   private static readonly RANGO_RECARGA_MUNDO = 20;
+  private static readonly BOMBAS_POR_DRON = 1;
+  private static readonly MISILES_POR_DRON = 2;
 
   constructor() {
     super('GameScene');
@@ -160,6 +166,8 @@ export class GameScene extends Phaser.Scene {
       this.playerUnitIds = new Set(playerUnits.map(unit => unit.unitId));
       this.selectionManager?.setPlayerUnits(playerUnits);
       this.renderUnits(playerUnits, enemyUnits);
+      this.sincronizarMunicionInicial([...playerUnits, ...enemyUnits]);
+      this.actualizarArmamentoUI();
     });
 
     // El servidor confirma la seleccion de unidad
@@ -182,6 +190,10 @@ export class GameScene extends Phaser.Scene {
 
     this.websocketClient.on(ServerToClientEvents.GAME_STATE_UPDATE, (unitPositions: IUnitPosition[]) => {
       this.syncUnitPositions(unitPositions);
+    });
+
+    this.websocketClient.on(ServerToClientEvents.MUNICION_RECARGADA, (payload: any) => {
+      this.procesarMunicionRecargada(payload);
     });
 
     this.selectionManager.on(ClientInternalEvents.SELECTION_CHANGED, (unit: IUnit) => {
@@ -362,6 +374,7 @@ export class GameScene extends Phaser.Scene {
     this.updateSelectedUnitCoordsText();
     this.actualizarIndicadoresRecarga();
     this.actualizarEstadoBotonRecarga();
+    this.actualizarArmamentoUI();
   }
 
   private mundoAPantalla(worldX: number, worldY: number): { x: number; y: number } {
@@ -465,6 +478,29 @@ export class GameScene extends Phaser.Scene {
       'Selected: none',
       { fontSize: '14px', color: '#ffffff', align: 'right' }
     ).setOrigin(1, 0);
+
+    this.selectedUnitArmamentoText = this.add.text(
+      this.cameras.main.width - 20,
+      38,
+      'Armamento: -',
+      { fontSize: '12px', color: '#cccccc', align: 'right' }
+    ).setOrigin(1, 0);
+
+    this.armamentoPlayerText = this.add.text(
+      20,
+      50,
+      'Jugador 1 Bombas: 0/0',
+      { fontSize: '14px', color: '#ffffff', align: 'left' }
+    ).setOrigin(0, 0);
+
+    this.armamentoEnemyText = this.add.text(
+      this.cameras.main.width - 20,
+      50,
+      'Jugador 2 Misiles: 0/0',
+      { fontSize: '14px', color: '#ffffff', align: 'right' }
+    ).setOrigin(1, 0);
+
+    this.actualizarArmamentoUI();
   }
 
   private crearBotonRecarga(): void {
@@ -472,7 +508,7 @@ export class GameScene extends Phaser.Scene {
     const ancho = 140;
     const alto = 36;
     const x = this.cameras.main.width - margen - ancho / 2;
-    const y = margen + alto / 2;
+    const y = this.cameras.main.height - margen - alto / 2;
 
     const fondo = this.add.rectangle(0, 0, ancho, alto, 0x2a2f35);
     fondo.setStrokeStyle(2, 0x4c4c4c, 0.8);
@@ -515,6 +551,124 @@ export class GameScene extends Phaser.Scene {
     const z = unit.z.toFixed(1);
 
     this.selectedUnitCoordsText.setText(`Coords: ${x}, ${y}, ${z}`);
+    this.updateSelectedUnitArmamentoText();
+  }
+
+  private actualizarArmamentoUI(): void {
+    if (!this.armamentoPlayerText || !this.armamentoEnemyText) {
+      return;
+    }
+
+    const player1Info = this.calcularArmamentoPorJugador(1);
+    const player2Info = this.calcularArmamentoPorJugador(2);
+
+    this.armamentoPlayerText.setText(`${player1Info.jugadorLabel} ${player1Info.etiqueta}: ${player1Info.actual}/${player1Info.max}`);
+    this.armamentoEnemyText.setText(`${player2Info.jugadorLabel} ${player2Info.etiqueta}: ${player2Info.actual}/${player2Info.max}`);
+    this.updateSelectedUnitArmamentoText();
+  }
+
+  private updateSelectedUnitArmamentoText(): void {
+    if (!this.selectedUnitArmamentoText) {
+      return;
+    }
+
+    const selectedUnit = this.selectionManager?.getSelectedUnit();
+    if (!selectedUnit) {
+      this.selectedUnitArmamentoText.setText('Armamento: -');
+      return;
+    }
+
+    const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+    if (!this.esUnidadDron(unit)) {
+      this.selectedUnitArmamentoText.setText('Armamento: N/A');
+      return;
+    }
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    const etiqueta = esJugadorUno ? 'Bombas' : 'Misiles';
+    const maxPorDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+    const actual = this.ammoByUnitId.get(unit.unitId) ?? 0;
+
+    this.selectedUnitArmamentoText.setText(`Armamento: ${etiqueta} ${actual}/${maxPorDron}`);
+  }
+
+  private calcularArmamentoPorJugador(jugador: 1 | 2): { actual: number; max: number; etiqueta: string; jugadorLabel: string } {
+    const esJugadorUno = jugador === 1;
+    const etiqueta = esJugadorUno ? 'Bombas' : 'Misiles';
+    const porDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+
+    let drones = 0;
+    let actual = 0;
+    for (const [unitId, unit] of this.knownUnits.entries()) {
+      const esUnidadJugadorUno = this.esUnidadDeJugador1(unitId);
+      if (esJugadorUno !== esUnidadJugadorUno) {
+        continue;
+      }
+      if (!this.esUnidadDron(unit)) {
+        continue;
+      }
+      drones += 1;
+      actual += this.ammoByUnitId.get(unitId) ?? 0;
+    }
+
+    const max = drones * porDron;
+    if (actual > max) {
+      actual = max;
+    }
+
+    return {
+      actual,
+      max,
+      etiqueta,
+      jugadorLabel: `Jugador ${jugador}`
+    };
+  }
+
+  private esJugadorUno(): boolean {
+    const playerId = this.websocketClient?.getPlayerId();
+    if (!playerId) {
+      return true;
+    }
+    return playerId === 'player_1';
+  }
+
+  private esUnidadDeJugador1(unitId: string): boolean {
+    const localEsJugadorUno = this.esJugadorUno();
+    const esUnidadPropia = this.playerUnitIds.has(unitId);
+    return localEsJugadorUno ? esUnidadPropia : !esUnidadPropia;
+  }
+
+  private sincronizarMunicionInicial(units: IUnit[]): void {
+    const siguiente = new Map<string, number>();
+    units.forEach(unit => {
+      if (!this.esUnidadDron(unit)) {
+        return;
+      }
+      const actual = this.ammoByUnitId.get(unit.unitId) ?? 0;
+      siguiente.set(unit.unitId, actual);
+    });
+    this.ammoByUnitId = siguiente;
+  }
+
+  private procesarMunicionRecargada(payload: any): void {
+    const unitId = payload?.unitId;
+    if (!unitId) {
+      return;
+    }
+
+    const unit = this.knownUnits.get(unitId);
+    if (!unit || !this.esUnidadDron(unit)) {
+      return;
+    }
+
+    const esJugadorUno = this.esUnidadDeJugador1(unitId);
+    const maxPorDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+
+    let nuevo = typeof payload?.ammo === 'number' ? payload.ammo : maxPorDron;
+    nuevo = Phaser.Math.Clamp(nuevo, 0, maxPorDron);
+
+    this.ammoByUnitId.set(unitId, nuevo);
+    this.actualizarArmamentoUI();
   }
 
   private setupPointerControls(): void {

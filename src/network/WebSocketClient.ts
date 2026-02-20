@@ -191,6 +191,11 @@ export class WebSocketClient {
         return;
       }
 
+      if (data.type === ServerToClientEvents.MUNICION_RECARGADA) {
+        this.emit(ServerToClientEvents.MUNICION_RECARGADA, data.payload);
+        return;
+      }
+
       // Si data es un error, el servidor devolvio un error
       if (data.type === ServerToClientEvents.SERVER_ERROR) {
         this.emit(ServerToClientEvents.SERVER_ERROR, data.payload);
