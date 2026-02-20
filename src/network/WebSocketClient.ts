@@ -87,14 +87,26 @@ export class WebSocketClient {
   * Solicita movimiento de unidad al servidor
   * Mensaje: ClientToServerEvents.MOVE_UNIT
   */
-  public requestUnitMove(unitId: string, targetX: number, targetY: number, targetZ?: number): void {
+  public solicitarMovimientoUnidad(unidadId: string, objetivoX: number, objetivoY: number, objetivoZ?: number): void {
     // Envia MOVE_UNIT exacto y targetZ solo si viene definido
     this.send({
       type: 'MOVE_UNIT',
-      unitId: unitId,
-      targetX: targetX,
-      targetY: targetY,
-      ...(targetZ !== undefined ? { targetZ: targetZ } : {})
+      unitId: unidadId,
+      targetX: objetivoX,
+      targetY: objetivoY,
+      ...(objetivoZ !== undefined ? { targetZ: objetivoZ } : {})
+    });
+  }
+
+  /*
+  * Solicita recarga de municion al servidor
+  * Mensaje: ClientToServerEvents.RELOAD_AMMO
+  */
+  public solicitarRecargaMunicion(unidadId: string, portadronesId?: string): void {
+    this.send({
+      type: 'RELOAD_AMMO',
+      unitId: unidadId,
+      ...(portadronesId ? { carrierId: portadronesId } : {})
     });
   }
 
@@ -153,6 +165,17 @@ export class WebSocketClient {
   }
 
   /*
+  * Solicita ataque con bomba al servidor
+  * Mensaje: ClientToServerEvents.LAUNCH_BOMB
+  */
+  public requestBombAttack(idUnidad: string): void {
+    this.send({
+      type: ClientToServerEvents.LAUNCH_BOMB,
+      unitId: idUnidad
+    });
+  }
+
+  /*
   * Maneja los mensajes recibidos del servidor
   * Parsea el mensaje y emite el evento a los clientes
   */
@@ -183,6 +206,22 @@ export class WebSocketClient {
 
       if (data.type === ServerToClientEvents.GAME_STATE_UPDATE) {
         this.emit(ServerToClientEvents.GAME_STATE_UPDATE, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.MUNICION_RECARGADA) {
+        this.emit(ServerToClientEvents.MUNICION_RECARGADA, data.payload);
+        return;
+      }
+
+      // Primero eventos de bombas para que la UI actualice al instante.
+      if (data.type === ServerToClientEvents.BOMB_LAUNCHED) {
+        this.emit(ServerToClientEvents.BOMB_LAUNCHED, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.BOMB_EXPLODED) {
+        this.emit(ServerToClientEvents.BOMB_EXPLODED, data.payload);
         return;
       }
 

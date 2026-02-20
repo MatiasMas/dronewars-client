@@ -4,4 +4,5 @@ export interface IBombLaunched {
     x: number;
     y: number;
     z: number;
+    ammo?: number;
 }
