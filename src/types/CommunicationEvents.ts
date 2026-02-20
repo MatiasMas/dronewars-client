@@ -14,6 +14,7 @@ export enum ClientToServerEvents {
   MOVE_UNIT = 'MOVE_UNIT',
   // RELOAD_AMMO: recarga de municion validada por servidor
   RELOAD_AMMO = 'RELOAD_AMMO',
+  LAUNCH_BOMB = 'LAUNCH_BOMB',
 
   // En el futuro, los eventos de movimiento o ataques deberian ir aqui
 }
@@ -26,6 +27,8 @@ export enum ServerToClientEvents {
   AVAILABLE_PLAYERS = 'AVAILABLE_PLAYERS',
   MOVE_ACCEPTED = 'MOVE_ACCEPTED',
   GAME_STATE_UPDATE = 'GAME_STATE_UPDATE',
+  BOMB_LAUNCHED = 'BOMB_LAUNCHED',
+  BOMB_EXPLODED = 'BOMB_EXPLODED',
   MUNICION_RECARGADA = 'MUNICION_RECARGADA',
 
   // En el futuro, los eventos de sincronizacion deberian ir aqui
