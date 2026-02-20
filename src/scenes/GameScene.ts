@@ -89,6 +89,7 @@ export class GameScene extends Phaser.Scene {
 
     this.setupEventListeners();
     this.drawUI();
+    this.createBombAttackButton();
     this.updateSelectedUnitCoordsText();
     this.crearBotonRecarga();
     this.cursors = this.input.keyboard?.createCursorKeys() ?? null;
@@ -123,8 +124,8 @@ export class GameScene extends Phaser.Scene {
         });
 
         resolve();
-      })
-    })
+      });
+    });
   }
 
   private selectFirstAvailablePlayer(): string | null {
@@ -206,7 +207,7 @@ export class GameScene extends Phaser.Scene {
       console.log(`[GameScene] Selection changed: ${unit.unitId}, sendind selection to server...`);
       this.websocketClient?.requestUnitSelection(unit.unitId);
       this.updateSelectedUnitCoordsText();
-    })
+    });
 
     this.selectionManager.on(ClientInternalEvents.SELECTION_CONFIRMED, () => {
       this.updateSelectedUnitCoordsText();
@@ -304,7 +305,7 @@ export class GameScene extends Phaser.Scene {
     // Cada unidad se renderiza como un container con body y label
     const body = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
     body.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
-    body.setInteractive({ useHandCursor: isPlayerUnit });
+    body.setInteractive({useHandCursor: isPlayerUnit});
 
     const label = this.add.text(0, 0, this.getUnitLabel(unit.type), {
       fontSize: '12px',
@@ -325,6 +326,14 @@ export class GameScene extends Phaser.Scene {
       body.setStrokeStyle(2, 0x666666);
       body.disableInteractive();
     }
+
+    this.add.text(x, y - 8, this.getUnitLabel(unit.type), {
+      fontSize: '12px',
+      color: '#ffffff',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    this.unitHealthLabels.set(unit.unitId, hpText);
 
     body.on('pointerdown', () => {
       if (isPlayerUnit) {  // Solo puedes seleccionar tus unidades
@@ -467,7 +476,7 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.centerX,
       this.cameras.main.centerY,
       'Error: ' + message,
-      { fontSize: '20px', color: '#ff0000' }
+      {fontSize: '20px', color: '#ff0000'}
     ).setOrigin(0.5);
   }
 
@@ -484,28 +493,28 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.centerX,
       30,
       'DroneWars',
-      { fontSize: '24px', color: '#00ff00', fontStyle: 'bold' }
+      {fontSize: '24px', color: '#00ff00', fontStyle: 'bold'}
     ).setOrigin(0.5);
 
     this.add.text(
       20,
       70,
       'Click a drone to select it',
-      { fontSize: '14px', color: '#cccccc' }
+      {fontSize: '14px', color: '#cccccc'}
     );
 
     this.add.text(
       20,
       this.cameras.main.height - 40,
       'Connected to the server',
-      { fontSize: '12px', color: '#00ff00' }
+      {fontSize: '12px', color: '#00ff00'}
     );
 
     this.selectedUnitCoordsText = this.add.text(
       this.cameras.main.width - 20,
       20,
       'Selected: none',
-      { fontSize: '14px', color: '#ffffff', align: 'right' }
+      {fontSize: '14px', color: '#ffffff', align: 'right'}
     ).setOrigin(1, 0);
 
     this.selectedUnitArmamentoText = this.add.text(
@@ -560,6 +569,104 @@ export class GameScene extends Phaser.Scene {
     this.textoBotonRecarga = texto;
     this.fondoBotonRecarga = fondo;
     this.actualizarEstadoBotonRecarga();
+  }
+
+  private createBombAttackButton(): void {
+    const x = 140;
+    const y = 120;
+
+    const button = this.add.rectangle(x, y, 220, 44, 0x8b0000)
+      .setStrokeStyle(2, 0xffd166)
+      .setInteractive({useHandCursor: true});
+
+    this.add.text(x, y, 'Lanzar Bomba (Click Izq)', {
+      fontSize: '14px',
+      color: '#ffffff',
+      fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    button.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (pointer.leftButtonDown()) {
+        this.launchBombFromSelectedUnit();
+      }
+    });
+  }
+
+  private launchBombFromSelectedUnit(): void {
+    const selectedUnit = this.selectionManager?.getSelectedUnit();
+
+    if (!selectedUnit) {
+      this.showError('Selecciona una unidad primero');
+      return;
+    }
+
+    if (selectedUnit.type !== UnitType.AERIAL_DRONE) {
+      this.showError('Solo un dron rojo (AERIAL_DRONE) puede lanzar bomba');
+      return;
+    }
+
+    this.websocketClient?.requestBombAttack(selectedUnit.unitId);
+  }
+
+  private handleBombLaunched(payload: IBombLaunched): void {
+    const bomb = this.add.ellipse(payload.x, payload.y, 12, 12, 0xffaa00);
+    bomb.setStrokeStyle(2, 0xff0000);
+    this.bombSprites.set(payload.bombId, bomb);
+
+    const duration = Math.max(180, payload.z * 80);
+
+    this.tweens.add({
+      targets: bomb,
+      scaleX: 0.7,
+      scaleY: 0.7,
+      alpha: 0.85,
+      duration: duration,
+      ease: 'Linear'
+    });
+  }
+
+  private handleBombExploded(payload: IBombExploded): void {
+    const bomb = this.bombSprites.get(payload.bombId);
+    if (bomb) {
+      bomb.destroy();
+      this.bombSprites.delete(payload.bombId);
+    }
+
+    const blast = this.add.circle(payload.x, payload.y, 32, 0xff5500, 0.45)
+      .setStrokeStyle(2, 0xffdd00);
+
+    this.tweens.add({
+      targets: blast,
+      alpha: 0,
+      scaleX: 1.8,
+      scaleY: 1.8,
+      duration: 260,
+      onComplete: () => blast.destroy()
+    });
+
+    payload.impactedUnits.forEach((unit) => {
+      const sprite = this.unitSprites.get(unit.unitId);
+      const hpLabel = this.unitHealthLabels.get(unit.unitId);
+
+      if (hpLabel) {
+        hpLabel.setText(`HP:${unit.health}`);
+      }
+
+      if (sprite) {
+        this.tweens.add({
+          targets: sprite,
+          alpha: 0.2,
+          yoyo: true,
+          repeat: 1,
+          duration: 90
+        });
+
+        // if (unit.health <= 0) {
+        //   sprite.setFillStyle(0x333333);
+        //   sprite.disableInteractive();
+        // }
+      }
+    });
   }
 
   private updateSelectedUnitCoordsText(): void {
