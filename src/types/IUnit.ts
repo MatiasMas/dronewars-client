@@ -1,6 +1,6 @@
 /*
- * This interface represents a unit.
- * Maps to UnitSelectionDTO on the server
+ * Esta interfaz representa una unidad.
+ * Mapea a UnitSelectionDTO en el servidor
  */
 import {UnitType} from "./UnitType";
 

@@ -1,6 +1,5 @@
-// An event callback its just a function that executes when a specific event is received
+// Un callback de evento es una funcion que se ejecuta cuando se recibe un evento especifico
 import {ClientInternalEvents, ClientToServerEvents, ServerToClientEvents} from "../types/CommunicationEvents";
-import P = Phaser.Input.Keyboard.KeyCodes.P;
 
 type EventCallback = (data?: any) => void;
 
@@ -11,11 +10,11 @@ export class WebSocketClient {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnected: boolean = false;
 
-  constructor(url: string = 'ws://localhost:8080/game') {
+  constructor(url: string = 'ws://localhost:8081/game') {
     this.url = url;
   }
 
-  // Connects to the server and defines connection events
+  // Conecta con el servidor y define eventos de conexion
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {
       try {
@@ -51,8 +50,8 @@ export class WebSocketClient {
   }
 
   /*
-  * Register a player on the server
-  * Message: ClientToServerEvents.REGISTER_PLAYER
+  * Registra un jugador en el servidor
+  * Mensaje: ClientToServerEvents.REGISTER_PLAYER
   */
   public registerPlayer(playerId: string): void {
     this.playerId = playerId;
@@ -64,8 +63,8 @@ export class WebSocketClient {
   }
 
   /*
-  * Request player units from the server
-  * Message: ClientToServerEvents.GET_PLAYER_UNITS
+  * Solicita las unidades del jugador al servidor
+  * Mensaje: ClientToServerEvents.GET_PLAYER_UNITS
   */
   public requestPlayerUnits(): void {
     this.send({
@@ -74,8 +73,8 @@ export class WebSocketClient {
   }
 
   /*
-  * Request unit selection to the server (checking if the player can actually select a unit)
-  * Message: ClientToServerEvents.SELECT_UNIT
+  * Solicita seleccion de unidad al servidor (validando que el jugador pueda seleccionarla)
+  * Mensaje: ClientToServerEvents.SELECT_UNIT
   */
   public requestUnitSelection(unitId: string): void {
     this.send({
@@ -85,7 +84,22 @@ export class WebSocketClient {
   }
 
   /*
-  * This method assigns an EventCallback depending on the event being passed
+  * Solicita movimiento de unidad al servidor
+  * Mensaje: ClientToServerEvents.MOVE_UNIT
+  */
+  public requestUnitMove(unitId: string, targetX: number, targetY: number, targetZ?: number): void {
+    // Envia MOVE_UNIT exacto y targetZ solo si viene definido
+    this.send({
+      type: 'MOVE_UNIT',
+      unitId: unitId,
+      targetX: targetX,
+      targetY: targetY,
+      ...(targetZ !== undefined ? { targetZ: targetZ } : {})
+    });
+  }
+
+  /*
+  * Asigna un EventCallback segun el evento recibido
   */
   public on(event: string, callback: EventCallback): void {
     if (!this.eventListeners.has(event)) {
@@ -111,12 +125,17 @@ export class WebSocketClient {
   }
 
   /*
-  * This method sends a message to the server with whatever you pass to the message
+  * Envia un mensaje al servidor con el contenido provisto
   */
   private send(message: any): void {
     if (!this.isConnected) {
       console.log("[WebSocket] Cannot send message, not connected to server");
       return;
+    }
+
+    if (message && typeof message.type === 'string') {
+      // Normaliza el type por seguridad ante espacios
+      message.type = message.type.trim().replace(/\s+/g, '_');
     }
 
     try {
@@ -127,14 +146,14 @@ export class WebSocketClient {
   }
 
   /*
-  * This method handles messages received from the server
-  * It parses the message and emits the event to the clients
+  * Maneja los mensajes recibidos del servidor
+  * Parsea el mensaje y emite el evento a los clientes
   */
   private handleMessage(eventData: string): void {
     try {
       const data = JSON.parse(eventData);
 
-      // If it has type and is AVAILABLE_PLAYERS means the server is sending a list of available players
+      // Si tiene type y es AVAILABLE_PLAYERS, el servidor envia la lista de jugadores disponibles
       if (data.type === ServerToClientEvents.AVAILABLE_PLAYERS) {
         this.emit(ServerToClientEvents.AVAILABLE_PLAYERS, data.payload);
         return;
@@ -150,13 +169,23 @@ export class WebSocketClient {
         return;
       }
 
-      // If data is an error means the server returned error
+      if (data.type === ServerToClientEvents.MOVE_ACCEPTED) {
+        this.emit(ServerToClientEvents.MOVE_ACCEPTED, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.GAME_STATE_UPDATE) {
+        this.emit(ServerToClientEvents.GAME_STATE_UPDATE, data.payload);
+        return;
+      }
+
+      // Si data es un error, el servidor devolvio un error
       if (data.type === ServerToClientEvents.SERVER_ERROR) {
         this.emit(ServerToClientEvents.SERVER_ERROR, data.payload);
         return;
       }
 
-      // If none of the above matches just sent the message type from the server to the listeners
+      // Si no coincide con nada, envia el tipo recibido a los escuchas
       if (data.type) {
         this.emit(data.type, data);
       }
@@ -166,7 +195,7 @@ export class WebSocketClient {
   }
 
   /*
-  * This method receives an event
+  * Recibe un evento
   */
   private emit(event: string, data?: any): void {
     const callbacks = this.eventListeners.get(event);
@@ -176,3 +205,4 @@ export class WebSocketClient {
     }
   }
 }
+
