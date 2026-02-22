@@ -157,13 +157,6 @@ export class WebSocketClient {
     }
   }
 
-  public requestBombAttack(unitId: string): void {
-    this.send({
-      type: ClientToServerEvents.LAUNCH_BOMB,
-      unitId: unitId
-    });
-  }
-
   /*
   * Solicita ataque con bomba al servidor
   * Mensaje: ClientToServerEvents.LAUNCH_BOMB
