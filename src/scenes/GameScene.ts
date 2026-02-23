@@ -95,6 +95,7 @@ export class GameScene extends Phaser.Scene {
     this.cursors = this.input.keyboard?.createCursorKeys() ?? null;
     this.ascendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
     this.descendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL) ?? null;
+    this.input.mouse?.disableContextMenu();
     this.setupPointerControls();
     this.input.keyboard?.addCapture([
       Phaser.Input.Keyboard.KeyCodes.UP,
@@ -176,6 +177,11 @@ export class GameScene extends Phaser.Scene {
       this.sincronizarMunicionInicial([...playerUnits, ...enemyUnits]);
       this.actualizarArmamentoUI();
     });
+
+    this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
+      this.clearSelectoinHighlight()
+      this.updateSelectedUnitCoordsText()
+    })
 
     // El servidor confirma la seleccion de unidad
     this.websocketClient.on(ServerToClientEvents.UNIT_SELECTED, (unit: IUnit) => {
@@ -335,11 +341,11 @@ export class GameScene extends Phaser.Scene {
 
     this.unitHealthLabels.set(unit.unitId, hpText);
 
-    body.on('pointerdown', () => {
+    body.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if(!pointer.leftButtonDown()) {return}
+
       if (isPlayerUnit) {  // Solo puedes seleccionar tus unidades
         this.selectionManager?.selectUnit(unit.unitId);
-        // Inicia arrastre de esta unidad
-        this.unidadArrastradaId = unit.unitId;
       }
     });
 
@@ -360,6 +366,18 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.unitHealthLabels.set(unit.unitId, hpText);
+  }
+
+  private clearSelectoinHighlight(): void {
+    this.unitSprites.forEach((sprite, unitId) => {
+      const unit = this.knownUnits.get(unitId);
+      if (unit && unit.health <= 0) {
+        sprite.body.setStrokeStyle(2, 0x666666);
+        return;
+      }
+      const isPlayerUnit = this.playerUnitIds.has(unitId);
+      sprite.body.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
+    })
   }
 
   private highlightUnit(unitId: string): void {
@@ -499,7 +517,7 @@ export class GameScene extends Phaser.Scene {
     this.add.text(
       20,
       70,
-      'Click a drone to select it',
+      'Click izq: seleccionar/mover | Click der: deseleccionar',
       {fontSize: '14px', color: '#cccccc'}
     );
 
@@ -710,58 +728,39 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupPointerControls(): void {
-    // Arrastrar para mover: pointerdown setea unidadArrastradaId, move envia objetivo, up limpia
-    this.input.on('pointerup', () => {
-      this.unidadArrastradaId = null;
-    });
-
-    this.input.on('pointerupoutside', () => {
-      this.unidadArrastradaId = null;
-    });
-
-    this.input.on('gameout', () => {
-      this.unidadArrastradaId = null;
-    });
-
-    this.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.isDown) {
-        this.unidadArrastradaId = null;
+    // Click derecho: deselecciona
+    // Click izquierdo en mapa: mueve a la unidad seleccionada
+    this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
+      if (pointer.rightButtonDown()) {
+        this.selectionManager?.deselectUnit();
         return;
       }
 
-      if (!this.unidadArrastradaId) {
-        return;
-      }
+      if (!pointer.leftButtonDown()) {return}
 
-      const unidad = this.knownUnits.get(this.unidadArrastradaId);
-      if (!unidad) {
-        return;
-      }
+      // Si hay objetos interactivos debajo, no es un click de mapa
+      if (gameObjects && gameObjects.length > 0) {return}
+
+      const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
+      if (!unidadSeleccionada) {return}
 
       const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
-      this.solicitarMovimiento(this.unidadArrastradaId, objetivoMundo.x, objetivoMundo.y, unidad.z);
+      const unidadActual = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
+      this.solicitarMovimiento(unidadSeleccionada.unitId, objetivoMundo.x, objetivoMundo.y, unidadActual.z);
     });
 
     // Rueda para altura: wheel ajusta Z en pasos fijos
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
-      if (!this.websocketClient || !this.selectionManager) {
-        return;
-      }
+      if (!this.websocketClient || !this.selectionManager) {return}
 
       const unidadSeleccionada = this.selectionManager.getSelectedUnit();
-      if (!unidadSeleccionada) {
-        return;
-      }
+      if (!unidadSeleccionada) {return}
 
-      if (!this.playerUnitIds.has(unidadSeleccionada.unitId)) {
-        return;
-      }
+      if (!this.playerUnitIds.has(unidadSeleccionada.unitId)) {return}
 
-      const unidad = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
+      const unidad = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada
       const direccion = Math.sign(deltaY);
-      if (direccion === 0) {
-        return;
-      }
+      if (direccion === 0) {return}
 
       const deltaZ = direccion > 0 ? -GameScene.ALTITUDE_STEP : GameScene.ALTITUDE_STEP;
       this.solicitarMovimiento(unidadSeleccionada.unitId, unidad.x, unidad.y, unidad.z + deltaZ);
