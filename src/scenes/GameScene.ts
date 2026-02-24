@@ -37,8 +37,6 @@ export class GameScene extends Phaser.Scene {
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
   private fondoBotonRecarga: Phaser.GameObjects.Rectangle | null = null;
-  private textoError: Phaser.GameObjects.Text | null = null;
-  private temporizadorOcultarError: Phaser.Time.TimerEvent | null = null;
   private static readonly MAP_MIN_X = 0;
   private static readonly MAP_MAX_X = 200;
   private static readonly MAP_MIN_Y = 0;
@@ -53,7 +51,6 @@ export class GameScene extends Phaser.Scene {
   private static readonly RANGO_RECARGA_MUNDO = 20;
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
-  private static readonly ERROR_MOSTRAR_MS = 1500;
 
   constructor() {
     super('GameScene');
@@ -487,30 +484,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showError(message: string): void {
-    if (this.temporizadorOcultarError) {
-      this.temporizadorOcultarError.remove(false);
-      this.temporizadorOcultarError = null;
-    }
-
-    if (this.textoError) {
-      this.textoError.destroy();
-      this.textoError = null;
-    }
-
-    this.textoError = this.add.text(
+    const texto = this.add.text(
       this.cameras.main.centerX,
       this.cameras.main.centerY,
       'Error: ' + message,
       {fontSize: '20px', color: '#ff0000'}
     ).setOrigin(0.5);
 
-    this.temporizadorOcultarError = this.time.delayedCall(GameScene.ERROR_MOSTRAR_MS, () => {
-      if (this.textoError) {
-        this.textoError.destroy();
-        this.textoError = null;
-      }
-      this.temporizadorOcultarError = null;
-    });
+    setTimeout(() => {
+      texto.destroy();
+    }, 1500);
   }
 
   private drawUI(): void {
