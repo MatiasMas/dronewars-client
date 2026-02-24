@@ -333,12 +333,6 @@ export class GameScene extends Phaser.Scene {
       body.disableInteractive();
     }
 
-    this.add.text(x, y - 8, this.getUnitLabel(unit.type), {
-      fontSize: '12px',
-      color: '#ffffff',
-      align: 'center'
-    }).setOrigin(0.5);
-
     this.unitHealthLabels.set(unit.unitId, hpText);
 
     body.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -490,12 +484,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   private showError(message: string): void {
-    this.add.text(
+    const texto = this.add.text(
       this.cameras.main.centerX,
       this.cameras.main.centerY,
       'Error: ' + message,
       {fontSize: '20px', color: '#ff0000'}
     ).setOrigin(0.5);
+
+    setTimeout(() => {
+      texto.destroy();
+    }, 1500);
   }
 
   private drawUI(): void {
