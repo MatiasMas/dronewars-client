@@ -169,6 +169,19 @@ export class WebSocketClient {
   }
 
   /*
+  * Solicita disparo de misil al servidor
+  * Mensaje: ClientToServerEvents.LAUNCH_MISSILE
+  */
+  public solicitarDisparoMisil(idUnidad: string, objetivoX: number, objetivoY: number): void {
+    this.send({
+      type: ClientToServerEvents.LAUNCH_MISSILE,
+      unitId: idUnidad,
+      targetX: objetivoX,
+      targetY: objetivoY
+    });
+  }
+
+  /*
   * Maneja los mensajes recibidos del servidor
   * Parsea el mensaje y emite el evento a los clientes
   */
@@ -218,6 +231,21 @@ export class WebSocketClient {
         return;
       }
 
+      if (data.type === ServerToClientEvents.MISIL_DISPARADO){
+        this.emit(ServerToClientEvents.MISIL_DISPARADO, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.MISIL_ACTUALIZADO){
+        this.emit(ServerToClientEvents.MISIL_ACTUALIZADO, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.MISIL_IMPACTADO){
+        this.emit(ServerToClientEvents.MISIL_IMPACTADO, data.payload);
+        return;
+      }
+
       // Si data es un error, el servidor devolvio un error
       if (data.type === ServerToClientEvents.SERVER_ERROR) {
         this.emit(ServerToClientEvents.SERVER_ERROR, data.payload);
@@ -227,15 +255,6 @@ export class WebSocketClient {
       // Si no coincide con nada, envia el tipo recibido a los escuchas
       if (data.type) {
         this.emit(data.type, data);
-      }
-      if (data.type === ServerToClientEvents.BOMB_LAUNCHED) {
-        this.emit(ServerToClientEvents.BOMB_LAUNCHED, data.payload);
-        return;
-      }
-
-      if (data.type === ServerToClientEvents.BOMB_EXPLODED) {
-        this.emit(ServerToClientEvents.BOMB_EXPLODED, data.payload);
-        return;
       }
     } catch (err) {
       console.log("[WebSocket] Error parsing message:", err);
