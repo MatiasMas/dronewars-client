@@ -256,6 +256,12 @@ export class WebSocketClient {
       if (data.type) {
         this.emit(data.type, data);
       }
+
+      if (data.type === ServerToClientEvents.GAME_ENDED) {
+        this.emit(ServerToClientEvents.GAME_ENDED, data.payload);
+        return;
+      }
+
     } catch (err) {
       console.log("[WebSocket] Error parsing message:", err);
     }
