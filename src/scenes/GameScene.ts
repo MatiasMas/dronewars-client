@@ -27,7 +27,6 @@ export class GameScene extends Phaser.Scene {
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private ascendKey: Phaser.Input.Keyboard.Key | null = null;
   private descendKey: Phaser.Input.Keyboard.Key | null = null;
-  private unidadArrastradaId: string | null = null;
   private lastMoveRequestAt = 0;
   private availablePlayers: IAvailablePlayer[] = [];
   private bombSprites: Map<string, Phaser.GameObjects.Ellipse> = new Map();
@@ -38,6 +37,7 @@ export class GameScene extends Phaser.Scene {
   private ultimoObjetivoMisilPunto: { x: number; y: number } | null = null;
   private marcadorObjetivoMisil: Phaser.GameObjects.Rectangle | null = null;
   private unitHealthLabels: Map<string, Phaser.GameObjects.Text> = new Map();
+  private unitFuelLabels: Map<string, Phaser.GameObjects.Text> = new Map();
   private selectedUnitCoordsText: Phaser.GameObjects.Text | null = null;
   private selectedUnitArmamentoText: Phaser.GameObjects.Text | null = null;
   private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
@@ -237,10 +237,6 @@ export class GameScene extends Phaser.Scene {
       this.updateSelectedUnitCoordsText();
     });
 
-    this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
-      this.unidadArrastradaId = null;
-      this.updateSelectedUnitCoordsText();
-    });
 
     this.selectionManager.on(ClientInternalEvents.UNITS_UPDATED, () => {
       this.updateSelectedUnitCoordsText();
@@ -359,7 +355,13 @@ export class GameScene extends Phaser.Scene {
       align: 'center'
     }).setOrigin(0.5);
 
-    const container = this.add.container(x, y, [body, label, hpText]);
+    const fuelText = this.add.text(0, 32, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
+      fontSize: '11px',
+      color: '#ffffff',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    const container = this.add.container(x, y, [body, label, hpText, fuelText]);
 
     if (unit.health <= 0) {
       body.setFillStyle(0x666666);
@@ -368,6 +370,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.unitHealthLabels.set(unit.unitId, hpText);
+    this.unitFuelLabels.set(unit.unitId, fuelText);
 
     body.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.leftButtonDown()) {
@@ -396,7 +399,6 @@ export class GameScene extends Phaser.Scene {
       this.indicadoresRecarga.set(unit.unitId, indicador);
     }
 
-    this.unitHealthLabels.set(unit.unitId, hpText);
   }
 
   private clearSelectoinHighlight(): void {
@@ -427,6 +429,8 @@ export class GameScene extends Phaser.Scene {
     this.unitSprites.clear();
     this.unitHealthLabels.forEach(label => label.destroy());
     this.unitHealthLabels.clear();
+    this.unitFuelLabels.forEach(label => label.destroy());
+    this.unitFuelLabels.clear();
   }
 
   private limpiarIndicadoresRecarga(): void {
@@ -442,6 +446,9 @@ export class GameScene extends Phaser.Scene {
         unit.x = update.position.x;
         unit.y = update.position.y;
         unit.z = update.position.z;
+        if (typeof update.combustible === 'number') {
+          unit.combustible = update.combustible;
+        }
       }
 
       if (this.playerUnitIds.has(update.unitId)) {
@@ -453,6 +460,12 @@ export class GameScene extends Phaser.Scene {
 
       if (sprite) {
         sprite.container.setPosition(posicionPantalla.x, posicionPantalla.y);
+        if (typeof update.combustible === 'number') {
+          const fuelLabel = this.unitFuelLabels.get(update.unitId);
+          if (fuelLabel) {
+            fuelLabel.setText(`FUEL:${Math.round(update.combustible)}`);
+          }
+        }
       } else if (unit) {
         this.createUnitSprite(unit, posicionPantalla.x, posicionPantalla.y, this.playerUnitIds.has(update.unitId));
       }
@@ -761,6 +774,14 @@ export class GameScene extends Phaser.Scene {
 
     this.ammoByUnitId.set(unitId, nuevo);
     this.actualizarArmamentoUI();
+
+    if (typeof payload?.combustible === 'number') {
+      unit.combustible = payload.combustible;
+      const fuelLabel = this.unitFuelLabels.get(unitId);
+      if (fuelLabel) {
+        fuelLabel.setText(`FUEL:${Math.round(payload.combustible)}`);
+      }
+    }
   }
 
   private setupPointerControls(): void {
