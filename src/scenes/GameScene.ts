@@ -10,6 +10,7 @@ import {IUnitPosition} from "../types/IUnitPosition";
 import { IMisilDisparado } from "../types/IMisilDisparado";
 import { IMisilImpactado } from "../types/IMisilImpactado";
 import { IMisilActualizado } from "../types/IMisilActualizado";
+import { IGameEnded } from "../types/IGameEnded";
 
 type UnitVisual = {
   container: Phaser.GameObjects.Container;
@@ -52,6 +53,8 @@ export class GameScene extends Phaser.Scene {
   private botonApuntarContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonApuntar: Phaser.GameObjects.Text | null = null;
   private fondoBotonApuntar: Phaser.GameObjects.Rectangle | null = null;
+  private partidaFinalizada: boolean = false;
+  private panelResultado: Phaser.GameObjects.Container | null = null;
   private static readonly MAP_MIN_X = 0;
   private static readonly MAP_MAX_X = 200;
   private static readonly MAP_MIN_Y = 0;
@@ -261,10 +264,17 @@ export class GameScene extends Phaser.Scene {
     this.websocketClient.on(ServerToClientEvents.MISIL_IMPACTADO, (payload: IMisilImpactado) => {
       this.manejarMisilImpactado(payload);
     });
+
+    this.websocketClient.on(ServerToClientEvents.GAME_ENDED, (payload: IGameEnded) => {
+      this.mostrarResultadoFinal(payload);
+    });
   }
 
   update(time: number): void {
     if (!this.websocketClient || !this.selectionManager || !this.cursors) {
+      return;
+    }
+    if (this.partidaFinalizada) {
       return;
     }
 
@@ -1024,6 +1034,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+
   private actualizarEstadoBotonApuntar(): void {
     if (!this.botonApuntarContenedor || !this.textoBotonApuntar || !this.fondoBotonApuntar) {
       return;
@@ -1466,6 +1477,51 @@ export class GameScene extends Phaser.Scene {
 
   private esPortadrones(unit: IUnit): boolean {
     return unit.type === 'AERIAL_CARRIER' || unit.type === 'NAVAL_CARRIER';
+  }
+
+  private mostrarResultadoFinal(payload: IGameEnded): void {
+    if (this.partidaFinalizada) return;
+    this.partidaFinalizada = true;
+
+    // Bloquea selección/interacciones
+    this.selectionManager?.deselectUnit();
+    this.unitSprites.forEach(s => s.body.disableInteractive());
+    this.botonRecargaContenedor?.disableInteractive();
+    this.botonMisilContenedor?.disableInteractive();
+    this.botonApuntarContenedor?.disableInteractive();
+
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+
+    const fondo = this.add.rectangle(w / 2, h / 2, w, h, 0x000000, 0.75).setDepth(100);
+    const titulo = this.add.text(w / 2, h / 2 - 70, payload.draw ? 'EMPATE' : 'FIN DE PARTIDA', {
+      fontSize: '42px',
+      color: '#ffffff',
+      fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(101);
+    const ganadorTexto = payload.draw
+        ? 'No hubo ganador'
+        : `Ganador: ${payload.winnerTeamId === 'player_1' ? 'Equipo 1' : 'Equipo 2'}`;
+
+    const razonTexto = this.textoRazonFin(payload.reason);
+
+    const detalle = this.add.text(w / 2, h / 2 + 5, `${ganadorTexto}\n${razonTexto}`, {
+      fontSize: '22px',
+      color: '#f0f0f0',
+      align: 'center'
+    }).setOrigin(0.5).setDepth(101);
+
+    this.panelResultado = this.add.container(0, 0, [fondo, titulo, detalle]).setDepth(101);
+  }
+
+  private textoRazonFin(reason: IGameEnded['reason']): string {
+    if (reason === 'ALL_UNITS_DESTROYED') {
+      return 'Todas las unidades de un equipo fueron destruidas.';
+    }
+    if (reason === 'CARRIER_DESTROYED_AND_NO_RESOURCES') {
+      return 'Portadrones destruido y unidades restantes sin combustible o munición.';
+    }
+    return 'Portadrones destruido y no se destruyó el rival en 2 minutos.';
   }
 }
 
