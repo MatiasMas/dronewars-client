@@ -1,4 +1,4 @@
-import {ILateralUnit} from "../types/ILateralUnit";
+import {ISideViewUnit} from "../types/ISideViewUnit";
 
 const MAP_MAX_X = 6500;
 const MAP_MAX_Z = 10;
@@ -6,7 +6,7 @@ const PANEL_RATIO_ALTURA = 0.2;
 const PADDING = 20;
 
 export class SideViewScene extends Phaser.Scene {
-  private unidades: ILateralUnit[] = [];
+  private unidades: ISideViewUnit[] = [];
   private puntosDeUnidad: Map<string, Phaser.GameObjects.Container> = new Map();
   private graphics!: Phaser.GameObjects.Graphics;
   private panelY = 0;
@@ -30,7 +30,7 @@ export class SideViewScene extends Phaser.Scene {
     this.dibujarGrilla();
 
     // Escuchar eventos del juego
-    this.game.events.on('altura-unidades-actualizada', (unidades: ILateralUnit[]) => {
+    this.game.events.on('altura-unidades-actualizada', (unidades: ISideViewUnit[]) => {
       this.unidades = unidades;
       this.redibujarUnidades();
     });
@@ -83,19 +83,19 @@ export class SideViewScene extends Phaser.Scene {
       const screenX = this.xAPantalla(unidad.x);
       const screenY = this.zAPantalla(unidad.z);
 
-      const color = this.getColorUnidad(unidad.tipo, unidad.esUnidadJugador, unidad.salud);
+      const color = this.getColorUnidad(unidad.type, unidad.isPlayerUnit, unidad.health);
 
       const dot = this.add.circle(0, 0, 6, color);
-      dot.setStrokeStyle(1, unidad.esUnidadJugador ? 0x00ff88 : 0xff4444);
+      dot.setStrokeStyle(1, unidad.isPlayerUnit ? 0x00ff88 : 0xff4444);
 
-      const label = this.add.text(0, -14, this.getEtiquetaUnidad(unidad.tipo), {
+      const label = this.add.text(0, -14, this.getEtiquetaUnidad(unidad.type), {
         fontSize: '9px',
-        color: unidad.salud <= 0 ? '#666666' : '#ffffff'
+        color: unidad.health <= 0 ? '#666666' : '#ffffff'
       }).setOrigin(0.5);
 
       const container = this.add.container(screenX, screenY, [dot, label]);
       container.setDepth(5);
-      this.puntosDeUnidad.set(unidad.idUnidad, container);
+      this.puntosDeUnidad.set(unidad.unitId, container);
     });
   }
 
