@@ -70,6 +70,14 @@ export class SideViewScene extends Phaser.Scene {
     this.puntosDeUnidad.clear();
 
     this.unidades.forEach(unidad => {
+      if (!this.esUnidadDron(unidad.type)) {
+        return;
+      }
+
+      if (!unidad.isPlayerUnit && !unidad.esVisible) {
+        return;
+      }
+
       const screenX = this.xAPantalla(unidad.x);
       const screenY = this.zAPantalla(unidad.z);
 
@@ -120,5 +128,9 @@ export class SideViewScene extends Phaser.Scene {
       NAVAL_CARRIER: 'NC',
     };
     return labels[tipo] ?? '?';
+  }
+
+  private esUnidadDron(tipo: string): boolean {
+    return tipo === 'AERIAL_DRONE' || tipo === 'NAVAL_DRONE';
   }
 }

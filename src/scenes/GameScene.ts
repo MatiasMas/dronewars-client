@@ -80,6 +80,15 @@ export class GameScene extends Phaser.Scene {
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
 
+  //Visibilidad
+  private static readonly RANGO_VISION_BOMBAS = 400;
+  private static readonly RANGO_VISION_MISILES = GameScene.RANGO_VISION_BOMBAS * 0.5;
+  private static readonly FACTOR_VISION_MIN_Z = 0.7;
+  private static readonly FACTOR_VISION_MAX_Z = 1.3;
+  private static readonly ALFA_ZONA_NO_VISIBLE = 0.35;
+  private capaNiebla: Phaser.GameObjects.Graphics | null = null;
+  private mascaraVision: Phaser.GameObjects.Graphics | null = null;
+
   constructor() {
     super('GameScene');
   }
@@ -98,6 +107,15 @@ export class GameScene extends Phaser.Scene {
       (GameScene.MAP_MAX_X) / background.width,
       (GameScene.MAP_MAX_Y) / background.height
     );
+
+    //Creando capa "niebla"
+    this.capaNiebla = this.add.graphics();
+    this.capaNiebla.setDepth(5);
+    this.mascaraVision = this.add.graphics();
+    this.mascaraVision.setVisible(false);
+    const mascara = new Phaser.Display.Masks.GeometryMask(this, this.mascaraVision);
+    mascara.setInvertAlpha(true);
+    this.capaNiebla.setMask(mascara);
 
     // Mundo más grande que el viewport: la cámara solo puede desplazarse dentro del mapa
     this.cameras.main.setBounds(
@@ -396,6 +414,8 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.emitirActualizacionDeAltura();
+    this.actualizarVisibilidadEnemigos();
+    this.actualizarCapaNiebla();
 
     console.log(`[GameScene] ${playerUnits.length} player units and ${enemyUnits.length} enemy units rendered`);
   }
@@ -499,6 +519,84 @@ export class GameScene extends Phaser.Scene {
     this.indicadoresRecarga.clear();
   }
 
+  private obtenerRangoVisionDron(dron: IUnit): number {
+    const esJugadorUno = this.esUnidadDeJugador1(dron.unitId);
+    const rangoBase = esJugadorUno ? GameScene.RANGO_VISION_BOMBAS : GameScene.RANGO_VISION_MISILES;
+    const maxZ = this.obtenerMaxZParaJugador();
+    if (maxZ <= 0) {
+      return rangoBase;
+    }
+
+    const z = Phaser.Math.Clamp(dron.z, 0, maxZ);
+    const factorZ = z / maxZ;
+    const factor = GameScene.FACTOR_VISION_MIN_Z
+      + (GameScene.FACTOR_VISION_MAX_Z - GameScene.FACTOR_VISION_MIN_Z) * factorZ;
+
+    return rangoBase * factor;
+  }
+
+  private actualizarVisibilidadEnemigos(): void {
+    const dronesPropios = this.obtenerDronesJugador();
+
+    for (const [unitId, unidad] of this.knownUnits.entries()) {
+      if (this.playerUnitIds.has(unitId)) {
+        continue;
+      }
+
+      let visible = false;
+
+      for (const dron of dronesPropios) {
+        const dx = dron.x - unidad.x;
+        const dy = dron.y - unidad.y;
+          const rango = this.obtenerRangoVisionDron(dron);
+          const distancia2 = dx * dx + dy * dy;
+
+        if (distancia2 <= rango * rango) {
+          visible = true;
+          break;
+        }
+      }
+
+      const sprite = this.unitSprites.get(unitId);
+      if (sprite) {
+        sprite.container.setAlpha(visible ? 1 : 0);
+      }
+
+      const hpLabel = this.unitHealthLabels.get(unitId);
+      if (hpLabel) {
+        hpLabel.setAlpha(visible ? 1 : 0);
+      }
+
+      const fuelLabel = this.unitFuelLabels.get(unitId);
+      if (fuelLabel) {
+        fuelLabel.setAlpha(visible ? 1 : 0);
+      }
+    }
+  }
+
+  private actualizarCapaNiebla(): void {
+    if (!this.capaNiebla || !this.mascaraVision) {
+      return
+    }
+
+    const anchoMapa = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
+    const altoMapa = GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y;
+
+    // Pintamos la niebla completa
+    this.capaNiebla.clear();
+    this.capaNiebla.fillStyle(0x000000, GameScene.ALFA_ZONA_NO_VISIBLE);
+    this.capaNiebla.fillRect(GameScene.MAP_MIN_X, GameScene.MAP_MIN_Y, anchoMapa, altoMapa);
+
+    // Dibujamos la mascara de vision (se invierte para dejar claro dentro del circulo)
+    this.mascaraVision.clear();
+    this.mascaraVision.fillStyle(0xffffff, 1);
+    const dronesPropios = this.obtenerDronesJugador();
+    for (const dron of dronesPropios) {
+        const rango = this.obtenerRangoVisionDron(dron);
+        this.mascaraVision.fillCircle(dron.x, dron.y, rango);
+    }
+  }
+
   private syncUnitPositions(unitPositions: IUnitPosition[]): void {
     // Sincroniza posiciones de todas las unidades con el estado enviado por el servidor
     unitPositions.forEach(update => {
@@ -538,6 +636,8 @@ export class GameScene extends Phaser.Scene {
     this.actualizarEstadoBotonRecarga();
     this.actualizarArmamentoUI();
     this.actualizarEstadoBotonMisil();
+    this.actualizarVisibilidadEnemigos();
+    this.actualizarCapaNiebla();
 
     //Se notifica al panel de altura
     this.emitirActualizacionDeAltura()
@@ -1795,8 +1895,28 @@ export class GameScene extends Phaser.Scene {
       type: unidad.type,
       isPlayerUnit: this.playerUnitIds.has(unidad.unitId),
       health: unidad.health,
+      esVisible: this.playerUnitIds.has(unidad.unitId)
+        ? true
+        : this.esVisibleParaDronesPropios(unidad),
     }));
     this.game.events.emit('altura-unidades-actualizada', unidades);
+  }
+
+  private esVisibleParaDronesPropios(unidadEnemiga: IUnit): boolean {
+    const dronesPropios = this.obtenerDronesJugador();
+
+    for (const dron of dronesPropios) {
+      const dx = dron.x - unidadEnemiga.x;
+      const dy = dron.y - unidadEnemiga.y;
+      const rango = this.obtenerRangoVisionDron(dron);
+      const distancia2 = dx * dx + dy * dy;
+
+      if (distancia2 <= rango * rango) {
+        return true;
+      }
+    }
+
+    return false;
   }
 }
 
