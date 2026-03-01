@@ -46,16 +46,6 @@ export class SideViewScene extends Phaser.Scene {
     g.fillStyle(0x0d1b2a, 1);
     g.fillRect(0, 0, this.panelW, this.panelH);
 
-    // Borde superior
-    g.lineStyle(1, 0x00ff88, 0.6);
-    g.lineBetween(0, 0, this.panelW, 0);
-
-    // Etiqueta
-    this.add.text(4, 2, 'Vista Lateral', {
-      fontSize: '10px',
-      color: '#00ff88'
-    }).setDepth(10);
-
     // Línea de suelo (z=0)
     g.lineStyle(1, 0x334455, 0.8);
     g.lineBetween(PADDING, this.panelH - PADDING, this.panelW - PADDING, this.panelH - PADDING);
