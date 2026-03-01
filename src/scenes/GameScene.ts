@@ -41,8 +41,10 @@ export class GameScene extends Phaser.Scene {
   private unitFuelLabels: Map<string, Phaser.GameObjects.Text> = new Map();
   private selectedUnitCoordsText: Phaser.GameObjects.Text | null = null;
   private selectedUnitArmamentoText: Phaser.GameObjects.Text | null = null;
-  private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
-  private armamentoEnemyText: Phaser.GameObjects.Text | null = null;
+  private selectedUnitFuelText: Phaser.GameObjects.Text | null = null;
+  private statsPanelContainer: Phaser.GameObjects.Container | null = null;
+  private statsDroneBody: Phaser.GameObjects.Rectangle | null = null;
+  private statsDroneLabel: Phaser.GameObjects.Text | null = null;
   private ammoByUnitId: Map<string, number> = new Map();
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
@@ -107,6 +109,9 @@ export class GameScene extends Phaser.Scene {
     const panelH = Math.floor(this.scale.height * 0.2);
     this.cameras.main.setViewport(0, 0, this.scale.width, this.scale.height - panelH);
 
+    //Lanzamos panel de altura en pantalla
+    this.scene.launch('SideViewScene');
+
     this.websocketClient = new WebSocketClient();
 
     try {
@@ -156,9 +161,6 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.CTRL
     ]);
     this.createBombAttackButton();
-
-    //Lanzamos panel de altura en pantalla
-    this.scene.launch('SideViewScene');
   }
 
   private async waitForAvailablePlayers(): Promise<void> {
@@ -700,36 +702,96 @@ export class GameScene extends Phaser.Scene {
       'Connected to the server',
       {fontSize: '12px', color: '#00ff00'}
     ).setScrollFactor(0).setDepth(100);
+    this.crearPanelEstadisticasDron();
+  }
+
+  private crearPanelEstadisticasDron(): void {
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+    const bottomPanelH = Math.floor(h * 0.2);
+
+    const panelWidth = 300;
+    const panelHeight = Math.max(110, bottomPanelH - 10);
+    const offsetRight = 0;
+    const offsetBottom = 0;
+
+    const panelX = w - panelWidth / 2 - offsetRight;
+    const panelY = h - bottomPanelH - offsetBottom;
+
+    const container = this.add.container(0, 0);
+
+    const fondo = this.add.rectangle(0, 0, panelWidth, panelHeight, 0x111827, 0.92);
+    fondo.setStrokeStyle(2, 0x4b5563, 0.9);
+
+    const titulo = this.add.text(
+      -panelWidth / 2 + 10,
+      -panelHeight / 2 + 8,
+      this.esJugadorUno() ? 'Dron Jugador 1' : 'Dron Jugador 2',
+      { fontSize: '13px', color: '#e5e7eb', fontStyle: 'bold' }
+    ).setOrigin(0, 0);
+
+    // 1) Etiqueta del dron (arriba en el panel)
+    const etiquetaCenterX = 0;
+    const etiquetaY = -panelHeight / 2 + 26;
+
+    const etiquetaDron = this.add.text(
+      etiquetaCenterX,
+      etiquetaY,
+      '-',
+      { fontSize: '12px', color: '#e5e7eb', align: 'center' }
+    ).setOrigin(0.5);
+
+    // 2) "Imagen" del dron justo debajo de la etiqueta
+    const imagenCenterX = 0;
+    const imagenY = etiquetaY + 28;
+
+    const cuerpoDron = this.add.rectangle(imagenCenterX, imagenY, 64, 40, 0x374151);
+    cuerpoDron.setStrokeStyle(2, 0x6b7280, 1);
+
+    // 3) Estadísticas debajo de la imagen
+    const textoBaseX = -panelWidth / 2 + 16;
+    const textoBaseY = imagenY + 30;
 
     this.selectedUnitCoordsText = this.add.text(
-      this.cameras.main.width - 20,
-      20,
-      'Selected: none',
-      {fontSize: '14px', color: '#ffffff', align: 'right'}
-    ).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+      textoBaseX,
+      textoBaseY,
+      'Sin dron seleccionado',
+      { fontSize: '12px', color: '#f9fafb' }
+    ).setOrigin(0, 0);
 
     this.selectedUnitArmamentoText = this.add.text(
-      this.cameras.main.width - 20,
-      38,
+      textoBaseX,
+      textoBaseY + 18,
       'Armamento: -',
-      { fontSize: '12px', color: '#cccccc', align: 'right' }
-    ).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+      { fontSize: '12px', color: '#d1d5db' }
+    ).setOrigin(0, 0);
 
-    this.armamentoPlayerText = this.add.text(
-      20,
-      50,
-      'Jugador 1 Bombas: 0/0',
-      { fontSize: '14px', color: '#ffffff', align: 'left' }
-    ).setOrigin(0, 0).setScrollFactor(0).setDepth(100);
+    this.selectedUnitFuelText = this.add.text(
+      textoBaseX,
+      textoBaseY + 36,
+      'Combustible: -',
+      { fontSize: '12px', color: '#d1d5db' }
+    ).setOrigin(0, 0);
 
-    this.armamentoEnemyText = this.add.text(
-      this.cameras.main.width - 20,
-      50,
-      'Jugador 2 Misiles: 0/0',
-      { fontSize: '14px', color: '#ffffff', align: 'right' }
-    ).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
+    container.add([
+      fondo,
+      titulo,
+      cuerpoDron,
+      etiquetaDron,
+      this.selectedUnitCoordsText,
+      this.selectedUnitArmamentoText,
+      this.selectedUnitFuelText,
+    ]);
 
-    this.actualizarArmamentoUI();
+    container.setPosition(panelX, panelY);
+    container.setScrollFactor(0);
+    container.setDepth(100);
+
+    this.statsPanelContainer = container;
+    this.statsDroneBody = cuerpoDron;
+    this.statsDroneLabel = etiquetaDron;
+
+    this.updateSelectedUnitCoordsText();
   }
 
   private crearBotonRecarga(): void {
@@ -762,14 +824,25 @@ export class GameScene extends Phaser.Scene {
   }
 
   private updateSelectedUnitCoordsText(): void {
-    // Muestra coordenadas de la unidad seleccionada
-    if (!this.selectedUnitCoordsText) {
+    // Muestra coordenadas y actualiza panel de la unidad seleccionada
+    if (!this.selectedUnitCoordsText || !this.selectedUnitArmamentoText || !this.selectedUnitFuelText) {
       return;
     }
 
     const selectedUnit = this.selectionManager?.getSelectedUnit();
     if (!selectedUnit) {
-      this.selectedUnitCoordsText.setText('Selected: none');
+      this.selectedUnitCoordsText.setText('Sin dron seleccionado');
+      this.selectedUnitArmamentoText.setText('Armamento: -');
+      this.selectedUnitFuelText.setText('Combustible: -');
+
+      if (this.statsDroneBody) {
+        this.statsDroneBody.setFillStyle(0x374151);
+        this.statsDroneBody.setStrokeStyle(2, 0x6b7280, 1);
+      }
+      if (this.statsDroneLabel) {
+        this.statsDroneLabel.setText('-');
+        this.statsDroneLabel.setColor('#9ca3af');
+      }
       return;
     }
 
@@ -778,20 +851,26 @@ export class GameScene extends Phaser.Scene {
     const y = unit.y.toFixed(1);
     const z = unit.z.toFixed(1);
 
-    this.selectedUnitCoordsText.setText(`Coords: ${x}, ${y}, ${z}`);
+    this.selectedUnitCoordsText.setText(`Coords: X: ${x}, Y: ${y}, Z: ${z}`);
+
+    const combustible = Math.round(unit.combustible ?? 0);
+    this.selectedUnitFuelText.setText(`Combustible: ${combustible}`);
+
+    if (this.statsDroneBody) {
+      this.statsDroneBody.setFillStyle(this.getUnitColor(unit.type));
+      const esJugador = this.esUnidadDeJugador1(unit.unitId) === this.esJugadorUno();
+      const bordeColor = esJugador ? 0x22c55e : 0xef4444;
+      this.statsDroneBody.setStrokeStyle(2, bordeColor, 1);
+    }
+    if (this.statsDroneLabel) {
+      this.statsDroneLabel.setText(this.getUnitLabel(unit.type));
+      this.statsDroneLabel.setColor(unit.health > 0 ? '#f9fafb' : '#6b7280');
+    }
+
     this.updateSelectedUnitArmamentoText();
   }
 
   private actualizarArmamentoUI(): void {
-    if (!this.armamentoPlayerText || !this.armamentoEnemyText) {
-      return;
-    }
-
-    const player1Info = this.calcularArmamentoPorJugador(1);
-    const player2Info = this.calcularArmamentoPorJugador(2);
-
-    this.armamentoPlayerText.setText(`${player1Info.jugadorLabel} ${player1Info.etiqueta}: ${player1Info.actual}/${player1Info.max}`);
-    this.armamentoEnemyText.setText(`${player2Info.jugadorLabel} ${player2Info.etiqueta}: ${player2Info.actual}/${player2Info.max}`);
     this.updateSelectedUnitArmamentoText();
   }
 
@@ -1708,12 +1787,12 @@ export class GameScene extends Phaser.Scene {
 
   private emitirActualizacionDeAltura(): void {
     const unidades = Array.from(this.knownUnits.values()).map(unidad => ({
-      idUnidad: unidad.unitId,
+      unitId: unidad.unitId,
       x: unidad.x,
       z: unidad.z,
-      tipo: unidad.type,
-      esUnidadJugador: this.playerUnitIds.has(unidad.unitId),
-      salud: unidad.health,
+      type: unidad.type,
+      isPlayerUnit: this.playerUnitIds.has(unidad.unitId),
+      health: unidad.health,
     }));
     this.game.events.emit('altura-unidades-actualizada', unidades);
   }
