@@ -28,6 +28,7 @@ export class GameScene extends Phaser.Scene {
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private ascendKey: Phaser.Input.Keyboard.Key | null = null;
   private descendKey: Phaser.Input.Keyboard.Key | null = null;
+  private unidadArrastradaId: string | null = null;
   private lastMoveRequestAt = 0;
   private availablePlayers: IAvailablePlayer[] = [];
   private bombSprites: Map<string, Phaser.GameObjects.Ellipse> = new Map();
@@ -93,12 +94,320 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
-  preload() {
+  preload(): void {
     this.load.image('ocean', 'images/ocean.png');
+
+    this.load.spritesheet('droneChinoMovLateral',
+        'assets/drone/chinese/Dron_Chino_Movimiento_Lateral.png',
+        { frameWidth: 48,
+          frameHeight: 18 }
+    );
+
+    this.load.spritesheet('droneChinoDesLateral',
+        'assets/drone/chinese/Dron_Chino_Destruccion_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    )
+
+    this.load.spritesheet('droneChinoBombLateral',
+        'assets/drone/chinese/Dron_Chino_Bomba_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    )
+
+    this.load.spritesheet('droneChinoMovCenital',
+        'assets/drone/chinese/Dron_Chino_Movimiento_Cenital.png',
+        { frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('droneChinoDesCenital',
+        'assets/drone/chinese/Dron_Chino_Destruccion_Cenital.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+
+    ;this.load.spritesheet('dronePortuguesMovLateral',
+        'assets/drone/portuguese/Dron_Portugues_Movimiento_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('dronePortuguesDesLateral',
+        'assets/drone/portuguese/Dron_Portugues_Destruccion_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('dronePortuguesMisilLateral',
+        'assets/drone/portuguese/Dron_Portugues_Misil_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('dronePortuguesMovCenital',
+        'assets/drone/portuguese/Dron_Portugues_Movimiento_Cenital.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('dronePortuguesDesCenital',
+        'assets/drone/portuguese/Dron_Portugues_Destruccion_Cenital.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+
+    ;this.load.spritesheet('carrierChinoMovLateral',
+        'assets/carriers/chinese/Portadrones_Chino_Movimiento_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('carrierChinoDesLateral',
+        'assets/carriers/chinese/Portadrones_Chino_Destruccion_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('carrierChinoMovCenital',
+        'assets/carriers/chinese/Portadrones_Chino_Movimiento_Cenital.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('carrierChinoDesCenital',
+        'assets/carriers/chinese/Portadrones_Chino_Destruccion_Cenital.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('carrierPortuguesMovLateral',
+        'assets/carriers/portuguese/Portadrones_Portugues_Movimiento_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('carrierPortuguesDesLateral',
+        'assets/carriers/portuguese/Portadrones_Portugues_Destruccion_Lateral.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('carrierPortuguesMovCenital',
+        'assets/carriers/portuguese/Portadrones_Portugues_Movimiento_Cenital.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('carrierPortuguesDesCenital',
+        'assets/carriers/portuguese/Portadrones_Portugues_Destruccion_Cenital.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
   }
+
 
   async create() {
     console.log("[GameScene] Creating scene...");
+
+    this.anims.create({
+      key: 'droneChinoMLateral',
+      frames: this.anims.generateFrameNumbers('droneChinoMovLateral', {
+        start: 0,
+        end: 3
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'droneChinoDLateral',
+      frames: this.anims.generateFrameNumbers('droneChinoDesLateral', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'droneChinoBmLateral',
+      frames: this.anims.generateFrameNumbers('droneChinoBombLateral', {
+        start: 0,
+        end: 5
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'droneChinoMCenital',
+      frames: this.anims.generateFrameNumbers('droneChinoMovCenital', {
+        start: 0,
+        end: 3
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'droneChinoDCenital',
+      frames: this.anims.generateFrameNumbers('droneChinoDesCenital', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'dronePortuguesMLateral',
+      frames: this.anims.generateFrameNumbers('dronePortuguesMovLateral', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'dronePortuguesDLateral',
+      frames: this.anims.generateFrameNumbers('dronePortuguesDesLateral', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'dronePortuguesMsLateral',
+      frames: this.anims.generateFrameNumbers('dronePortuguesMisilLateral', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'dronePortuguesMCenital',
+      frames: this.anims.generateFrameNumbers('dronePortuguesMovCenital', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'dronePortuguesDCenital',
+      frames: this.anims.generateFrameNumbers('dronePortuguesDesCenital', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'carrierChinoMLateral',
+      frames: this.anims.generateFrameNumbers('carrierChinoMovLateral', {
+        start: 0,
+        end: 3
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'carrierChinoDLateral',
+      frames: this.anims.generateFrameNumbers('carrierChinoDesLateral', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'carrierChinoMCenital',
+      frames: this.anims.generateFrameNumbers('carrierChinoMovCenital', {
+        start: 0,
+        end: 3
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'carrierChinoDCenital',
+      frames: this.anims.generateFrameNumbers('carrierChinoDesCenital', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'carrierPortuguesMLateral',
+      frames: this.anims.generateFrameNumbers('carrierPortuguesMovLateral', {
+        start: 0,
+        end: 6
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'carrierPortuguesDLateral',
+      frames: this.anims.generateFrameNumbers('carrierPortuguesDesLateral', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'carrierPortuguesMCenital',
+      frames: this.anims.generateFrameNumbers('carrierPortuguesMovCenital', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: -1
+    });
+
+    this.anims.create({
+      key: 'carrierPortuguesDCenital',
+      frames: this.anims.generateFrameNumbers('carrierPortuguesDesCenital', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
 
     // Creando imagen de background
     const background = this.add.image(GameScene.MAP_MAX_X / 2, GameScene.MAP_MAX_Y / 2, 'ocean');
@@ -297,7 +606,6 @@ export class GameScene extends Phaser.Scene {
     this.selectionManager.on(ClientInternalEvents.SELECTION_CONFIRMED, () => {
       this.updateSelectedUnitCoordsText();
     });
-
 
     this.selectionManager.on(ClientInternalEvents.UNITS_UPDATED, () => {
       this.updateSelectedUnitCoordsText();
@@ -762,15 +1070,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawUI(): void {
-    // Fondo del juego (sigue la cámara)
-    // this.add.rectangle(
-    //   GameScene.MAP_MAX_X / 2,
-    //   GameScene.MAP_MAX_Y / 2,
-    //   GameScene.MAP_MAX_X,
-    //   GameScene.MAP_MAX_Y,
-    //   0x1a1a2e
-    // ).setDepth(-1);
-
     // Borde del mapa (visual, sigue la cámara)
     const graphics = this.add.graphics({ x: 0, y: 0 });
     graphics.lineStyle(2, 0x00ff00, 0.5);
@@ -1919,6 +2218,4 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 }
-
-
 
