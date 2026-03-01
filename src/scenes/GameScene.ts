@@ -45,6 +45,8 @@ export class GameScene extends Phaser.Scene {
   private statsPanelContainer: Phaser.GameObjects.Container | null = null;
   private statsDroneBody: Phaser.GameObjects.Rectangle | null = null;
   private statsDroneLabel: Phaser.GameObjects.Text | null = null;
+  private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
+  private armamentoEnemyText: Phaser.GameObjects.Text | null = null;
   private ammoByUnitId: Map<string, number> = new Map();
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
@@ -160,7 +162,6 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.SHIFT,
       Phaser.Input.Keyboard.KeyCodes.CTRL
     ]);
-    this.createBombAttackButton();
   }
 
   private async waitForAvailablePlayers(): Promise<void> {
@@ -951,8 +952,9 @@ export class GameScene extends Phaser.Scene {
       if (!this.esUnidadDron(unit)) {
         return;
       }
-      const actual = this.ammoByUnitId.get(unit.unitId) ?? 0;
-      siguiente.set(unit.unitId, actual);
+      const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+      const maxPorDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+      siguiente.set(unit.unitId, maxPorDron);
     });
     this.ammoByUnitId = siguiente;
   }
@@ -1050,9 +1052,8 @@ export class GameScene extends Phaser.Scene {
     const x = 140;
     const y = 120;
 
-    const button = this.add.rectangle(0, 0, 220, 44, 0x8b0000)
-      .setStrokeStyle(2, 0xffd166)
-      .setInteractive({ useHandCursor: true });
+    const fondo = this.add.rectangle(0, 0, 220, 44, 0x8b0000)
+      .setStrokeStyle(2, 0xffd166);
 
     const label = this.add.text(0, 0, 'Lanzar Bomba (Click Izq)', {
       fontSize: '14px',
@@ -1060,19 +1061,20 @@ export class GameScene extends Phaser.Scene {
       fontStyle: 'bold'
     }).setOrigin(0.5);
 
-    const contenedor = this.add.container(x, y, [button, label]);
+    const contenedor = this.add.container(x, y, [fondo, label]);
     contenedor.setScrollFactor(0).setDepth(100);
+    contenedor.setInteractive(new Phaser.Geom.Rectangle(-110, -22, 220, 44), Phaser.Geom.Rectangle.Contains);
 
-    button.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    contenedor.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown()) {
         this.launchBombFromSelectedUnit();
       }
     });
 
     if (!this.esJugadorUno()) {
-      button.setInteractive(false);
-      button.setFillStyle(0x4d4d4d, 1);
-      button.setStrokeStyle(2, 0x888888);
+      contenedor.disableInteractive();
+      fondo.setFillStyle(0x4d4d4d, 1);
+      fondo.setStrokeStyle(2, 0x888888);
       contenedor.setAlpha(0.6);
     }
   }
