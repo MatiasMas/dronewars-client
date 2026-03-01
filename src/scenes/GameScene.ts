@@ -10,6 +10,7 @@ import {IUnitPosition} from "../types/IUnitPosition";
 import { IMisilDisparado } from "../types/IMisilDisparado";
 import { IMisilImpactado } from "../types/IMisilImpactado";
 import { IMisilActualizado } from "../types/IMisilActualizado";
+import { IGameEnded } from "../types/IGameEnded";
 
 type UnitVisual = {
   container: Phaser.GameObjects.Container;
@@ -27,7 +28,6 @@ export class GameScene extends Phaser.Scene {
   private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private ascendKey: Phaser.Input.Keyboard.Key | null = null;
   private descendKey: Phaser.Input.Keyboard.Key | null = null;
-  private unidadArrastradaId: string | null = null;
   private lastMoveRequestAt = 0;
   private availablePlayers: IAvailablePlayer[] = [];
   private bombSprites: Map<string, Phaser.GameObjects.Ellipse> = new Map();
@@ -38,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   private ultimoObjetivoMisilPunto: { x: number; y: number } | null = null;
   private marcadorObjetivoMisil: Phaser.GameObjects.Rectangle | null = null;
   private unitHealthLabels: Map<string, Phaser.GameObjects.Text> = new Map();
+  private unitFuelLabels: Map<string, Phaser.GameObjects.Text> = new Map();
   private selectedUnitCoordsText: Phaser.GameObjects.Text | null = null;
   private selectedUnitArmamentoText: Phaser.GameObjects.Text | null = null;
   private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
@@ -52,6 +53,8 @@ export class GameScene extends Phaser.Scene {
   private botonApuntarContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonApuntar: Phaser.GameObjects.Text | null = null;
   private fondoBotonApuntar: Phaser.GameObjects.Rectangle | null = null;
+  private partidaFinalizada: boolean = false;
+  private panelResultado: Phaser.GameObjects.Container | null = null;
   private static readonly MAP_MIN_X = 0;
   private static readonly MAP_MAX_X = 200;
   private static readonly MAP_MIN_Y = 0;
@@ -237,10 +240,6 @@ export class GameScene extends Phaser.Scene {
       this.updateSelectedUnitCoordsText();
     });
 
-    this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
-      this.unidadArrastradaId = null;
-      this.updateSelectedUnitCoordsText();
-    });
 
     this.selectionManager.on(ClientInternalEvents.UNITS_UPDATED, () => {
       this.updateSelectedUnitCoordsText();
@@ -265,10 +264,17 @@ export class GameScene extends Phaser.Scene {
     this.websocketClient.on(ServerToClientEvents.MISIL_IMPACTADO, (payload: IMisilImpactado) => {
       this.manejarMisilImpactado(payload);
     });
+
+    this.websocketClient.on(ServerToClientEvents.GAME_ENDED, (payload: IGameEnded) => {
+      this.mostrarResultadoFinal(payload);
+    });
   }
 
   update(time: number): void {
     if (!this.websocketClient || !this.selectionManager || !this.cursors) {
+      return;
+    }
+    if (this.partidaFinalizada) {
       return;
     }
 
@@ -359,7 +365,13 @@ export class GameScene extends Phaser.Scene {
       align: 'center'
     }).setOrigin(0.5);
 
-    const container = this.add.container(x, y, [body, label, hpText]);
+    const fuelText = this.add.text(0, 32, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
+      fontSize: '11px',
+      color: '#ffffff',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    const container = this.add.container(x, y, [body, label, hpText, fuelText]);
 
     if (unit.health <= 0) {
       body.setFillStyle(0x666666);
@@ -368,6 +380,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.unitHealthLabels.set(unit.unitId, hpText);
+    this.unitFuelLabels.set(unit.unitId, fuelText);
 
     body.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.leftButtonDown()) {
@@ -396,7 +409,6 @@ export class GameScene extends Phaser.Scene {
       this.indicadoresRecarga.set(unit.unitId, indicador);
     }
 
-    this.unitHealthLabels.set(unit.unitId, hpText);
   }
 
   private clearSelectoinHighlight(): void {
@@ -427,6 +439,8 @@ export class GameScene extends Phaser.Scene {
     this.unitSprites.clear();
     this.unitHealthLabels.forEach(label => label.destroy());
     this.unitHealthLabels.clear();
+    this.unitFuelLabels.forEach(label => label.destroy());
+    this.unitFuelLabels.clear();
   }
 
   private limpiarIndicadoresRecarga(): void {
@@ -442,6 +456,9 @@ export class GameScene extends Phaser.Scene {
         unit.x = update.position.x;
         unit.y = update.position.y;
         unit.z = update.position.z;
+        if (typeof update.combustible === 'number') {
+          unit.combustible = update.combustible;
+        }
       }
 
       if (this.playerUnitIds.has(update.unitId)) {
@@ -453,6 +470,12 @@ export class GameScene extends Phaser.Scene {
 
       if (sprite) {
         sprite.container.setPosition(posicionPantalla.x, posicionPantalla.y);
+        if (typeof update.combustible === 'number') {
+          const fuelLabel = this.unitFuelLabels.get(update.unitId);
+          if (fuelLabel) {
+            fuelLabel.setText(`FUEL:${Math.round(update.combustible)}`);
+          }
+        }
       } else if (unit) {
         this.createUnitSprite(unit, posicionPantalla.x, posicionPantalla.y, this.playerUnitIds.has(update.unitId));
       }
@@ -761,6 +784,14 @@ export class GameScene extends Phaser.Scene {
 
     this.ammoByUnitId.set(unitId, nuevo);
     this.actualizarArmamentoUI();
+
+    if (typeof payload?.combustible === 'number') {
+      unit.combustible = payload.combustible;
+      const fuelLabel = this.unitFuelLabels.get(unitId);
+      if (fuelLabel) {
+        fuelLabel.setText(`FUEL:${Math.round(payload.combustible)}`);
+      }
+    }
   }
 
   private setupPointerControls(): void {
@@ -1002,6 +1033,7 @@ export class GameScene extends Phaser.Scene {
       this.fondoBotonMisil.setStrokeStyle(2, 0x4c4c4c, 0.8);
     }
   }
+
 
   private actualizarEstadoBotonApuntar(): void {
     if (!this.botonApuntarContenedor || !this.textoBotonApuntar || !this.fondoBotonApuntar) {
@@ -1506,6 +1538,51 @@ export class GameScene extends Phaser.Scene {
 
   private esPortadrones(unit: IUnit): boolean {
     return unit.type === 'AERIAL_CARRIER' || unit.type === 'NAVAL_CARRIER';
+  }
+
+  private mostrarResultadoFinal(payload: IGameEnded): void {
+    if (this.partidaFinalizada) return;
+    this.partidaFinalizada = true;
+
+    // Bloquea selección/interacciones
+    this.selectionManager?.deselectUnit();
+    this.unitSprites.forEach(s => s.body.disableInteractive());
+    this.botonRecargaContenedor?.disableInteractive();
+    this.botonMisilContenedor?.disableInteractive();
+    this.botonApuntarContenedor?.disableInteractive();
+
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+
+    const fondo = this.add.rectangle(w / 2, h / 2, w, h, 0x000000, 0.75).setDepth(100);
+    const titulo = this.add.text(w / 2, h / 2 - 70, payload.draw ? 'EMPATE' : 'FIN DE PARTIDA', {
+      fontSize: '42px',
+      color: '#ffffff',
+      fontStyle: 'bold'
+    }).setOrigin(0.5).setDepth(101);
+    const ganadorTexto = payload.draw
+        ? 'No hubo ganador'
+        : `Ganador: ${payload.winnerTeamId === 'player_1' ? 'Equipo 1' : 'Equipo 2'}`;
+
+    const razonTexto = this.textoRazonFin(payload.reason);
+
+    const detalle = this.add.text(w / 2, h / 2 + 5, `${ganadorTexto}\n${razonTexto}`, {
+      fontSize: '22px',
+      color: '#f0f0f0',
+      align: 'center'
+    }).setOrigin(0.5).setDepth(101);
+
+    this.panelResultado = this.add.container(0, 0, [fondo, titulo, detalle]).setDepth(101);
+  }
+
+  private textoRazonFin(reason: IGameEnded['reason']): string {
+    if (reason === 'ALL_UNITS_DESTROYED') {
+      return 'Todas las unidades de un equipo fueron destruidas.';
+    }
+    if (reason === 'CARRIER_DESTROYED_AND_NO_RESOURCES') {
+      return 'Portadrones destruido y unidades restantes sin combustible o munición.';
+    }
+    return 'Portadrones destruido y no se destruyó el rival en 2 minutos.';
   }
 }
 

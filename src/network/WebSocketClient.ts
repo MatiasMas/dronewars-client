@@ -10,7 +10,7 @@ export class WebSocketClient {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnected: boolean = false;
 
-  constructor(url: string = 'ws://localhost:8081/game') {
+  constructor(url: string = 'ws://192.168.1.18:8081/game') {
     this.url = url;
   }
 
@@ -256,6 +256,12 @@ export class WebSocketClient {
       if (data.type) {
         this.emit(data.type, data);
       }
+
+      if (data.type === ServerToClientEvents.GAME_ENDED) {
+        this.emit(ServerToClientEvents.GAME_ENDED, data.payload);
+        return;
+      }
+
     } catch (err) {
       console.log("[WebSocket] Error parsing message:", err);
     }
