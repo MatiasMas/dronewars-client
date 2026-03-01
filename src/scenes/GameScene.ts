@@ -1165,10 +1165,8 @@ export class GameScene extends Phaser.Scene {
         });
 
         if (unidadImpactada.health <= 0) {
-          // Si queda en 0, la unidad se pinta gris.
-          sprite.body.setFillStyle(0x666666);
-          sprite.body.setStrokeStyle(2, 0x666666);
-          sprite.body.disableInteractive();
+          // Si queda en 0, la eliminamos del mapa.
+          this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'bomba');
         }
       }
     });
@@ -1256,13 +1254,76 @@ export class GameScene extends Phaser.Scene {
         });
 
         if (unidadImpactada.health <= 0) {
-          // Si queda en 0, la unidad se pinta gris.
-          sprite.body.setFillStyle(0x666666);
-          sprite.body.setStrokeStyle(2, 0x666666);
-          sprite.body.disableInteractive();
+          // Si queda en 0, la eliminamos del mapa.
+          this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'misil');
         }
       }
     });
+  }
+
+  private eliminarUnidadDelMapa(unidadId: string, tipoAtaque: 'bomba' | 'misil'): void {
+    const sprite = this.unitSprites.get(unidadId);
+
+    if (sprite) {
+      const colorExplosion = tipoAtaque === 'bomba' ? 0xff5500 : 0x00bcd4;
+      const onda = this.add.circle(sprite.container.x, sprite.container.y, 18, colorExplosion, 0.4);
+      onda.setDepth(8);
+
+      this.tweens.add({
+        targets: onda,
+        alpha: 0,
+        scaleX: 1.8,
+        scaleY: 1.8,
+        duration: 240,
+        onComplete: () => onda.destroy()
+      });
+
+      this.tweens.add({
+        targets: sprite.container,
+        alpha: 0,
+        scaleX: 0.6,
+        scaleY: 0.6,
+        duration: 200,
+        onComplete: () => sprite.container.destroy()
+      });
+
+      this.unitSprites.delete(unidadId);
+    }
+
+    const hpLabel = this.unitHealthLabels.get(unidadId);
+    if (hpLabel) {
+      hpLabel.destroy();
+      this.unitHealthLabels.delete(unidadId);
+    }
+
+    const fuelLabel = this.unitFuelLabels.get(unidadId);
+    if (fuelLabel) {
+      fuelLabel.destroy();
+      this.unitFuelLabels.delete(unidadId);
+    }
+
+    const indicador = this.indicadoresRecarga.get(unidadId);
+    if (indicador) {
+      indicador.destroy();
+      this.indicadoresRecarga.delete(unidadId);
+    }
+
+    this.knownUnits.delete(unidadId);
+    this.playerUnitIds.delete(unidadId);
+
+    if (this.selectionManager?.getSelectedUnit()?.unitId === unidadId) {
+      this.selectionManager.deselectUnit();
+    }
+
+    if (this.selectionManager) {
+      const actuales = this.selectionManager.getPlayerUnits();
+      const nuevos = actuales.filter(unidad => unidad.unitId !== unidadId);
+      if (nuevos.length !== actuales.length) {
+        this.selectionManager.setPlayerUnits(nuevos);
+      }
+    }
+
+    this.actualizarArmamentoUI();
   }
 
   private solicitarMovimiento(unidadId: string, objetivoX: number, objetivoY: number, objetivoZ: number): void {
