@@ -5,4 +5,5 @@ export interface ISideViewUnit {
   type: string;
   isPlayerUnit: boolean;
   health: number;
+  esVisible: boolean;
 }
