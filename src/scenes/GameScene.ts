@@ -55,14 +55,19 @@ export class GameScene extends Phaser.Scene {
   private fondoBotonApuntar: Phaser.GameObjects.Rectangle | null = null;
   private partidaFinalizada: boolean = false;
   private panelResultado: Phaser.GameObjects.Container | null = null;
+  /** Centrar cámara en este punto en el próximo frame (al recibir unidades). */
+  private pendingCameraCenter: { x: number; y: number } | null = null;
+
+  // Límites del mapa (mundo grande; el viewport solo muestra una parte y sigue a la unidad seleccionada)
   private static readonly MAP_MIN_X = 0;
-  private static readonly MAP_MAX_X = 200;
+  private static readonly MAP_MAX_X = 6700;
   private static readonly MAP_MIN_Y = 0;
-  private static readonly MAP_MAX_Y = 200;
+  private static readonly MAP_MAX_Y = 2500;
   private static readonly MAP_MIN_Z = 0;
   private static readonly MAP_MAX_Z = 10;
   private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.005;
-  private static readonly MAP_PADDING = 60;
+
+
   private static readonly MOVE_STEP = 5;
   private static readonly ALTITUDE_STEP = 0.5;
   private static readonly MOVE_REPEAT_MS = 120;
@@ -75,8 +80,28 @@ export class GameScene extends Phaser.Scene {
     super('GameScene');
   }
 
+  preload() {
+    this.load.image('ocean', 'images/ocean.png');
+  }
+
   async create() {
     console.log("[GameScene] Creating scene...");
+
+    // Creando imagen de background
+    const background = this.add.image(GameScene.MAP_MAX_X / 2, GameScene.MAP_MAX_Y / 2, 'ocean');
+    background.setDepth(-2);
+    background.setScale(
+      (GameScene.MAP_MAX_X) / background.width,
+      (GameScene.MAP_MAX_Y) / background.height
+    );
+
+    // Mundo más grande que el viewport: la cámara solo puede desplazarse dentro del mapa
+    this.cameras.main.setBounds(
+      GameScene.MAP_MIN_X,
+      GameScene.MAP_MIN_Y,
+      GameScene.MAP_MAX_X - GameScene.MAP_MIN_X,
+      GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y
+    );
 
     this.websocketClient = new WebSocketClient();
 
@@ -185,16 +210,21 @@ export class GameScene extends Phaser.Scene {
 
     // El servidor devuelve la lista de unidades del jugador
     this.websocketClient.on(ServerToClientEvents.UNITS_RECEIVED, (data: any) => {
-      const playerUnits: IUnit[] = data.playerUnits;
-      const enemyUnits: IUnit[] = data.enemyUnits;
+      const playerUnits: IUnit[] = data?.playerUnits ?? data?.player_units ?? [];
+      const enemyUnits: IUnit[] = data?.enemyUnits ?? data?.enemy_units ?? [];
 
       console.log(`[GameScene] Received ${playerUnits.length} units for player and ${enemyUnits.length} units for enemy from server`);
+      if (playerUnits.length > 0) {
+        const first = playerUnits[0];
+        console.log(`[GameScene] First unit: id=${first.unitId}, type=${first.type}, x=${first.x}, y=${first.y}`);
+      }
       this.knownUnits.clear();
       playerUnits.forEach(unit => this.knownUnits.set(unit.unitId, unit));
       enemyUnits.forEach(unit => this.knownUnits.set(unit.unitId, unit));
       this.playerUnitIds = new Set(playerUnits.map(unit => unit.unitId));
       this.selectionManager?.setPlayerUnits(playerUnits);
       this.renderUnits(playerUnits, enemyUnits);
+      this.centrarCamaraEnPortadrones(playerUnits);
       this.sincronizarMunicionInicial([...playerUnits, ...enemyUnits]);
       this.actualizarArmamentoUI();
     });
@@ -270,7 +300,18 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  update(time: number): void {
+  update(_time: number): void {
+    // Centrado inicial: aplicar siempre al inicio, antes de cualquier return
+    if (this.pendingCameraCenter) {
+      const cam = this.cameras.main;
+      const { x, y } = this.pendingCameraCenter;
+      this.pendingCameraCenter = null;
+      if (cam.width > 0 && cam.height > 0) {
+        cam.centerOn(x, y);
+        console.log(`[GameScene] Camera centerOn(${x}, ${y}), scroll=(${cam.scrollX}, ${cam.scrollY})`);
+      }
+    }
+
     if (!this.websocketClient || !this.selectionManager || !this.cursors) {
       return;
     }
@@ -278,6 +319,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.actualizarCamara();
     this.actualizarIndicadoresRecarga();
     this.actualizarEstadoBotonRecarga();
     this.actualizarEstadoBotonMisil();
@@ -336,19 +378,18 @@ export class GameScene extends Phaser.Scene {
     this.limpiarIndicadoresRecarga();
 
     playerUnits.forEach(unit => {
-      const posicionPantalla = this.mundoAPantalla(unit.x, unit.y);
-      this.createUnitSprite(unit, posicionPantalla.x, posicionPantalla.y, true);  // true = unidad propia
+      this.createUnitSprite(unit, unit.x, unit.y, true);  // true = unidad propia
     });
 
     enemyUnits.forEach(unit => {
-      const posicionPantalla = this.mundoAPantalla(unit.x, unit.y);
-      this.createUnitSprite(unit, posicionPantalla.x, posicionPantalla.y, false); // false = unidad enemiga
+      this.createUnitSprite(unit, unit.x, unit.y, false); // false = unidad enemiga
     });
 
     console.log(`[GameScene] ${playerUnits.length} player units and ${enemyUnits.length} enemy units rendered`);
   }
+
   private createUnitSprite(unit: IUnit, x: number, y: number, isPlayerUnit: boolean): void {
-    // Cada unidad se renderiza como un container con body y label
+    // x, y = coordenadas MUNDO. El container va en (x,y); los hijos en posiciones RELATIVAS al container (0,0), (0,20)...
     const body = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
     body.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
     body.setInteractive({useHandCursor: true});
@@ -387,7 +428,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      if (isPlayerUnit) {  // Solo puedes seleccionar tus unidades
+      if (isPlayerUnit) {
         this.selectionManager?.selectUnit(unit.unitId);
         return;
       }
@@ -398,9 +439,8 @@ export class GameScene extends Phaser.Scene {
 
     this.unitSprites.set(unit.unitId, { container, body, label });
 
-    // Para portadrones aliados: crear indicador de recarga (circulo verde transparente)
+    // Para portadrones aliados: crear indicador de recarga
     if (isPlayerUnit && this.esPortadrones(unit)) {
-      // Radio fijo: diametro 120 (doble del cuadrado del dron de 60)
       const radio = 80;
       const indicador = this.add.circle(x, y, radio, 0x00ff00, 0.25);
       indicador.setStrokeStyle(2, 0x00ff00, 0.5);
@@ -408,7 +448,6 @@ export class GameScene extends Phaser.Scene {
       indicador.setVisible(false);
       this.indicadoresRecarga.set(unit.unitId, indicador);
     }
-
   }
 
   private clearSelectoinHighlight(): void {
@@ -466,10 +505,10 @@ export class GameScene extends Phaser.Scene {
       }
 
       const sprite = this.unitSprites.get(update.unitId);
-      const posicionPantalla = this.mundoAPantalla(update.position.x, update.position.y);
 
       if (sprite) {
-        sprite.container.setPosition(posicionPantalla.x, posicionPantalla.y);
+        // Las coordenadas son del MUNDO, Phaser las renderizará según la cámara
+        sprite.container.setPosition(update.position.x, update.position.y);
         if (typeof update.combustible === 'number') {
           const fuelLabel = this.unitFuelLabels.get(update.unitId);
           if (fuelLabel) {
@@ -477,7 +516,8 @@ export class GameScene extends Phaser.Scene {
           }
         }
       } else if (unit) {
-        this.createUnitSprite(unit, posicionPantalla.x, posicionPantalla.y, this.playerUnitIds.has(update.unitId));
+        // Si no existe el sprite, crear uno nuevo
+        this.createUnitSprite(unit, update.position.x, update.position.y, this.playerUnitIds.has(update.unitId));
       }
     });
 
@@ -488,40 +528,89 @@ export class GameScene extends Phaser.Scene {
     this.actualizarEstadoBotonMisil();
   }
 
-  private mundoAPantalla(worldX: number, worldY: number): { x: number; y: number } {
-    // Convierte coordenadas del mundo (0..200) a pantalla con padding
-    const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
-    const height = this.cameras.main.height - GameScene.MAP_PADDING * 2;
-    const clampedX = Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X);
-    const clampedY = Phaser.Math.Clamp(worldY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y);
-    const normalizedX = (clampedX - GameScene.MAP_MIN_X) / (GameScene.MAP_MAX_X - GameScene.MAP_MIN_X);
-    const normalizedY = (clampedY - GameScene.MAP_MIN_Y) / (GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y);
+  // ===== METODOS DE CONVERSION MUNDO A PANTALLA =====
 
-    return {
-      x: GameScene.MAP_PADDING + normalizedX * width,
-      y: GameScene.MAP_PADDING + normalizedY * height
-    };
+  /**
+   * Convierte coordenadas del mundo a pantalla, considerando la posición de la cámara
+   * La cámara está centrada en el dron seleccionado
+   */
+  private mundoAPantalla(worldX: number, worldY: number): { x: number; y: number } {
+    // Obtener la posición de la cámara (centrada en el dron seleccionado)
+    const cameraX = this.cameras.main.scrollX + this.cameras.main.width / 2;
+    const cameraY = this.cameras.main.scrollY + this.cameras.main.height / 2;
+
+    // Convertir coordenadas del mundo a pantalla relativas a la cámara
+    const screenX = worldX - cameraX + this.cameras.main.width / 2;
+    const screenY = worldY - cameraY + this.cameras.main.height / 2;
+
+    return { x: screenX, y: screenY };
   }
 
+  /**
+   * Convierte coordenadas de pantalla a mundo, considerando la posición de la cámara
+   */
   private pantallaAMundo(screenX: number, screenY: number): { x: number; y: number } {
-    // Convierte coordenadas de pantalla a mundo (0..200)
-    const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
-    const height = this.cameras.main.height - GameScene.MAP_PADDING * 2;
-    const normalizedX = (screenX - GameScene.MAP_PADDING) / width;
-    const normalizedY = (screenY - GameScene.MAP_PADDING) / height;
-    const worldX = GameScene.MAP_MIN_X + normalizedX * (GameScene.MAP_MAX_X - GameScene.MAP_MIN_X);
-    const worldY = GameScene.MAP_MIN_Y + normalizedY * (GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y);
+    // Obtener la posición de la cámara
+    const cameraX = this.cameras.main.scrollX + this.cameras.main.width / 2;
+    const cameraY = this.cameras.main.scrollY + this.cameras.main.height / 2;
 
+    // Convertir coordenadas de pantalla a mundo
+    const worldX = screenX - this.cameras.main.width / 2 + cameraX;
+    const worldY = screenY - this.cameras.main.height / 2 + cameraY;
+
+    // Clampear dentro de los límites del mapa
     return {
       x: Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X),
       y: Phaser.Math.Clamp(worldY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y)
     };
   }
 
+  /**
+   * Convierte un radio del mundo a píxeles de pantalla
+   */
   private radioMundoAPantalla(worldRadius: number): number {
-    const width = this.cameras.main.width - GameScene.MAP_PADDING * 2;
+    // Escala basada en el ancho visible
     const worldWidth = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
-    return (worldRadius / worldWidth) * width;
+    const screenWidth = this.cameras.main.width;
+    return (worldRadius / worldWidth) * screenWidth;
+  }
+
+  /**
+   * Actualiza la posición de la cámara para seguir la unidad seleccionada.
+   * El viewport muestra solo una parte del mapa; la cámara se desplaza con la unidad.
+   */
+  private actualizarCamara(): void {
+    const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
+    if (!unidadSeleccionada) {
+      return;
+    }
+
+    const unit = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
+    const w = this.cameras.main.width;
+    const h = this.cameras.main.height;
+
+    // Centrar la cámara en la unidad; setBounds ya limita el scroll al área del mapa
+    const scrollX = unit.x - w / 2;
+    const scrollY = unit.y - h / 2;
+    this.cameras.main.setScroll(scrollX, scrollY);
+  }
+
+  /**
+   * Al inicio del juego, enfoca la cámara en el portadrones del jugador:
+   * Player 1 -> AERIAL_CARRIER, Player 2 -> NAVAL_CARRIER.
+   * Se aplica en el próximo update() para tener dimensiones de cámara válidas.
+   */
+  private centrarCamaraEnPortadrones(playerUnits: IUnit[]): void {
+    if (!playerUnits?.length) return;
+
+    const playerId = this.websocketClient?.getPlayerId();
+    const tipoCarrierStr = playerId === 'player_1' ? 'AERIAL_CARRIER' : 'NAVAL_CARRIER';
+    const portadrones = playerUnits.find(u => String(u?.type) === tipoCarrierStr);
+    const objetivo = portadrones ?? playerUnits[0];
+    if (!objetivo || typeof objetivo.x !== 'number' || typeof objetivo.y !== 'number') return;
+
+    this.pendingCameraCenter = { x: objetivo.x, y: objetivo.y };
+    console.log(`[GameScene] Will center camera on carrier/unit at (${objetivo.x}, ${objetivo.y}), type=${objetivo.type}`);
   }
 
   private getUnitColor(type: string): number {
@@ -550,7 +639,7 @@ export class GameScene extends Phaser.Scene {
       this.cameras.main.centerY,
       'Error: ' + message,
       {fontSize: '20px', color: '#ff0000'}
-    ).setOrigin(0.5);
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(101);
 
     setTimeout(() => {
       texto.destroy();
@@ -558,62 +647,75 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawUI(): void {
-    this.add.rectangle(
-      this.cameras.main.centerX,
-      this.cameras.main.centerY,
-      this.cameras.main.width,
-      this.cameras.main.height,
-      0x1a1a2e
-    ).setDepth(-1);
+    // Fondo del juego (sigue la cámara)
+    // this.add.rectangle(
+    //   GameScene.MAP_MAX_X / 2,
+    //   GameScene.MAP_MAX_Y / 2,
+    //   GameScene.MAP_MAX_X,
+    //   GameScene.MAP_MAX_Y,
+    //   0x1a1a2e
+    // ).setDepth(-1);
 
-    this.add.text(
+    // Borde del mapa (visual, sigue la cámara)
+    const graphics = this.add.graphics({ x: 0, y: 0 });
+    graphics.lineStyle(2, 0x00ff00, 0.5);
+    graphics.strokeRect(
+      GameScene.MAP_MIN_X,
+      GameScene.MAP_MIN_Y,
+      GameScene.MAP_MAX_X - GameScene.MAP_MIN_X,
+      GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y
+    );
+
+    // ===== UI FIJA EN PANTALLA (no sigue cámara) =====
+    const titulo = this.add.text(
       this.cameras.main.centerX,
       30,
       'DroneWars',
       {fontSize: '24px', color: '#00ff00', fontStyle: 'bold'}
-    ).setOrigin(0.5);
+    ).setOrigin(0.5).setScrollFactor(0);
+    titulo.setDepth(100);
 
     this.add.text(
       20,
       70,
       'Click izq: seleccionar/mover | Click der: deseleccionar',
       {fontSize: '14px', color: '#cccccc'}
-    );
+    ).setScrollFactor(0).setDepth(100);
 
     this.add.text(
       20,
       this.cameras.main.height - 40,
       'Connected to the server',
       {fontSize: '12px', color: '#00ff00'}
-    );
+    ).setScrollFactor(0).setDepth(100);
 
     this.selectedUnitCoordsText = this.add.text(
       this.cameras.main.width - 20,
       20,
       'Selected: none',
       {fontSize: '14px', color: '#ffffff', align: 'right'}
-    ).setOrigin(1, 0);
+    ).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
 
     this.selectedUnitArmamentoText = this.add.text(
       this.cameras.main.width - 20,
       38,
       'Armamento: -',
       { fontSize: '12px', color: '#cccccc', align: 'right' }
-    ).setOrigin(1, 0);
+    ).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
 
     this.armamentoPlayerText = this.add.text(
       20,
       50,
       'Jugador 1 Bombas: 0/0',
       { fontSize: '14px', color: '#ffffff', align: 'left' }
-    ).setOrigin(0, 0);
+    ).setOrigin(0, 0).setScrollFactor(0).setDepth(100);
 
     this.armamentoEnemyText = this.add.text(
       this.cameras.main.width - 20,
       50,
       'Jugador 2 Misiles: 0/0',
       { fontSize: '14px', color: '#ffffff', align: 'right' }
-    ).setOrigin(1, 0);
+    ).setOrigin(1, 0).setScrollFactor(0).setDepth(100);
 
     this.actualizarArmamentoUI();
   }
@@ -634,8 +736,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const contenedor = this.add.container(x, y, [fondo, texto]);
-    contenedor.setDepth(10);
-    contenedor.setScrollFactor(0);
+    contenedor.setScrollFactor(0).setDepth(100);
     contenedor.setInteractive(new Phaser.Geom.Rectangle(-ancho / 2, -alto / 2, ancho, alto), Phaser.Geom.Rectangle.Contains);
 
     contenedor.on('pointerdown', () => {
@@ -809,6 +910,7 @@ export class GameScene extends Phaser.Scene {
       if (gameObjects && gameObjects.length > 0) {return}
 
       if (this.apuntandoMisil) {
+        // Convertir posición de pantalla a mundo
         const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
         this.objetivoMisilPunto = { x: objetivoMundo.x, y: objetivoMundo.y };
         this.apuntandoMisil = false;
@@ -818,13 +920,14 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-    const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
-    if (!unidadSeleccionada) {return}
+      const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
+      if (!unidadSeleccionada) {return}
 
-    const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
-    const unidadActual = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
-    this.solicitarMovimiento(unidadSeleccionada.unitId, objetivoMundo.x, objetivoMundo.y, unidadActual.z);
-  });
+      // Convertir posición de pantalla a mundo
+      const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
+      const unidadActual = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
+      this.solicitarMovimiento(unidadSeleccionada.unitId, objetivoMundo.x, objetivoMundo.y, unidadActual.z);
+    });
 
     // Rueda para altura: wheel ajusta Z en pasos fijos
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
@@ -848,15 +951,18 @@ export class GameScene extends Phaser.Scene {
     const x = 140;
     const y = 120;
 
-    const button = this.add.rectangle(x, y, 220, 44, 0x8b0000)
+    const button = this.add.rectangle(0, 0, 220, 44, 0x8b0000)
       .setStrokeStyle(2, 0xffd166)
       .setInteractive({ useHandCursor: true });
 
-    this.add.text(x, y, 'Lanzar Bomba (Click Izq)', {
+    const label = this.add.text(0, 0, 'Lanzar Bomba (Click Izq)', {
       fontSize: '14px',
       color: '#ffffff',
       fontStyle: 'bold'
     }).setOrigin(0.5);
+
+    const contenedor = this.add.container(x, y, [button, label]);
+    contenedor.setScrollFactor(0).setDepth(100);
 
     button.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown()) {
@@ -868,7 +974,7 @@ export class GameScene extends Phaser.Scene {
       button.setInteractive(false);
       button.setFillStyle(0x4d4d4d, 1);
       button.setStrokeStyle(2, 0x888888);
-      button.setAlpha(0.6);
+      contenedor.setAlpha(0.6);
     }
   }
 
@@ -909,6 +1015,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const contenedor = this.add.container(x, y, [fondo, texto]);
+    contenedor.setScrollFactor(0).setDepth(100);
     contenedor.setInteractive(new Phaser.Geom.Rectangle(-ancho / 2, -alto / 2, ancho, alto), Phaser.Geom.Rectangle.Contains);
 
     contenedor.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -940,6 +1047,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
 
     const contenedor = this.add.container(x, y, [fondo, texto]);
+    contenedor.setScrollFactor(0).setDepth(100);
     contenedor.setInteractive(new Phaser.Geom.Rectangle(-lado / 2, -lado / 2, lado, lado), Phaser.Geom.Rectangle.Contains);
 
     contenedor.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
@@ -1079,18 +1187,18 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const posicionPantalla = this.mundoAPantalla(punto.x, punto.y);
     const lado = 14;
 
     if (!this.marcadorObjetivoMisil) {
-      const marcador = this.add.rectangle(posicionPantalla.x, posicionPantalla.y, lado, lado, 0xffcc80, 0.25);
+      const marcador = this.add.rectangle(punto.x, punto.y, lado, lado, 0xffcc80, 0.25);
       marcador.setStrokeStyle(2, 0xffa726, 0.9);
       marcador.setDepth(6);
       this.marcadorObjetivoMisil = marcador;
+      this.marcadorObjetivoMisil.setVisible(true);
       return;
     }
 
-    this.marcadorObjetivoMisil.setPosition(posicionPantalla.x, posicionPantalla.y);
+    this.marcadorObjetivoMisil.setPosition(punto.x, punto.y);
     this.marcadorObjetivoMisil.setVisible(true);
   }
 
@@ -1121,9 +1229,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBombLaunched(datosBomba: IBombLaunched): void {
-    // Dibuja la bomba en el mapa.
-    const posicionPantalla = this.mundoAPantalla(datosBomba.x, datosBomba.y);
-    const spriteBomba = this.add.ellipse(posicionPantalla.x, posicionPantalla.y, 12, 12, 0xffaa00);
+    // Dibuja la bomba en el mapa (coordenadas mundo para que haga scroll con la cámara)
+    const spriteBomba = this.add.ellipse(datosBomba.x, datosBomba.y, 12, 12, 0xffaa00);
     spriteBomba.setStrokeStyle(2, 0xff0000);
     this.bombSprites.set(datosBomba.bombId, spriteBomba);
 
@@ -1159,9 +1266,8 @@ export class GameScene extends Phaser.Scene {
       this.bombSprites.delete(datosExplosion.bombId);
     }
 
-    // Efecto visual de explosion.
-    const posicionPantalla = this.mundoAPantalla(datosExplosion.x, datosExplosion.y);
-    const ondaExplosion = this.add.circle(posicionPantalla.x, posicionPantalla.y, 32, 0xff5500, 0.45)
+    // Efecto visual de explosión (coordenadas mundo para que haga scroll)
+    const ondaExplosion = this.add.circle(datosExplosion.x, datosExplosion.y, 32, 0xff5500, 0.45)
       .setStrokeStyle(2, 0xffdd00);
 
     this.tweens.add({
@@ -1207,14 +1313,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private manejarMisilDisparado(datosMisil: IMisilDisparado): void {
-    // Dibuja el misil en el mapa. La posicion se actualiza desde el servidor.
-    const inicioPantalla = this.mundoAPantalla(datosMisil.x, datosMisil.y);
-
-    const spriteMisil = this.add.ellipse(inicioPantalla.x, inicioPantalla.y, 10, 6, 0x00bcd4);
+    // Dibuja el misil en el mapa en coordenadas mundo (scroll con la cámara)
+    const spriteMisil = this.add.ellipse(datosMisil.x, datosMisil.y, 10, 6, 0x00bcd4);
     spriteMisil.setStrokeStyle(1, 0xffffff);
     spriteMisil.setDepth(5);
     this.spritesMisiles.set(datosMisil.misilId, spriteMisil);
-    this.posicionesMisiles.set(datosMisil.misilId, { x: inicioPantalla.x, y: inicioPantalla.y });
+    this.posicionesMisiles.set(datosMisil.misilId, { x: datosMisil.x, y: datosMisil.y });
 
     // Soportamos el nombre correcto del payload y el anterior por compatibilidad.
     const idUnidad = datosMisil.unidadAtaqueId ?? (datosMisil as any).unidadAtacanteId;
@@ -1234,26 +1338,24 @@ export class GameScene extends Phaser.Scene {
 
   private manejarMisilActualizado(datosMisil: IMisilActualizado): void {
     const spriteMisil = this.spritesMisiles.get(datosMisil.misilId);
-    const posicionPantalla = this.mundoAPantalla(datosMisil.x, datosMisil.y);
     const anterior = this.posicionesMisiles.get(datosMisil.misilId);
 
     if (!spriteMisil) {
-      // Si no existe, lo creamos para no perderlo.
-      const nuevo = this.add.ellipse(posicionPantalla.x, posicionPantalla.y, 10, 6, 0x00bcd4);
+      const nuevo = this.add.ellipse(datosMisil.x, datosMisil.y, 10, 6, 0x00bcd4);
       nuevo.setStrokeStyle(1, 0xffffff);
       nuevo.setDepth(5);
       this.spritesMisiles.set(datosMisil.misilId, nuevo);
-      this.posicionesMisiles.set(datosMisil.misilId, { x: posicionPantalla.x, y: posicionPantalla.y });
+      this.posicionesMisiles.set(datosMisil.misilId, { x: datosMisil.x, y: datosMisil.y });
       return;
     }
 
     if (anterior) {
-      const angulo = Phaser.Math.Angle.Between(anterior.x, anterior.y, posicionPantalla.x, posicionPantalla.y);
+      const angulo = Phaser.Math.Angle.Between(anterior.x, anterior.y, datosMisil.x, datosMisil.y);
       spriteMisil.setRotation(angulo);
     }
 
-    spriteMisil.setPosition(posicionPantalla.x, posicionPantalla.y);
-    this.posicionesMisiles.set(datosMisil.misilId, { x: posicionPantalla.x, y: posicionPantalla.y });
+    spriteMisil.setPosition(datosMisil.x, datosMisil.y);
+    this.posicionesMisiles.set(datosMisil.misilId, { x: datosMisil.x, y: datosMisil.y });
   }
 
   private manejarMisilImpactado(datosImpacto: IMisilImpactado): void {
@@ -1359,8 +1461,7 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      const posicionPantalla = this.mundoAPantalla(portadrones.x, portadrones.y);
-      indicador.setPosition(posicionPantalla.x, posicionPantalla.y);
+      indicador.setPosition(portadrones.x, portadrones.y);
 
       const hayDronCerca = dronesJugador.some(dron => {
         const deltaX = dron.x - portadrones.x;
@@ -1511,7 +1612,7 @@ export class GameScene extends Phaser.Scene {
       align: 'center'
     }).setOrigin(0.5).setDepth(101);
 
-    this.panelResultado = this.add.container(0, 0, [fondo, titulo, detalle]).setDepth(101);
+    this.panelResultado = this.add.container(0, 0, [fondo, titulo, detalle]).setScrollFactor(0).setDepth(101);
   }
 
   private textoRazonFin(reason: IGameEnded['reason']): string {
