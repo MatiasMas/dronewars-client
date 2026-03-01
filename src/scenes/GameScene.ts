@@ -71,7 +71,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly MOVE_STEP = 5;
   private static readonly ALTITUDE_STEP = 0.5;
   private static readonly MOVE_REPEAT_MS = 120;
-  private static readonly RANGO_RECARGA_MUNDO = 20;
+  private static readonly RANGO_RECARGA_MUNDO = 120;
   private static readonly RANGO_DISPARO_MISIL = 30;
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
@@ -102,6 +102,10 @@ export class GameScene extends Phaser.Scene {
       GameScene.MAP_MAX_X - GameScene.MAP_MIN_X,
       GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y
     );
+
+    // Limitar el viewport de la cámara principal al 80% superior
+    const panelH = Math.floor(this.scale.height * 0.2);
+    this.cameras.main.setViewport(0, 0, this.scale.width, this.scale.height - panelH);
 
     this.websocketClient = new WebSocketClient();
 
@@ -152,6 +156,9 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.CTRL
     ]);
     this.createBombAttackButton();
+
+    //Lanzamos panel de altura en pantalla
+    this.scene.launch('SideViewScene');
   }
 
   private async waitForAvailablePlayers(): Promise<void> {
@@ -385,6 +392,8 @@ export class GameScene extends Phaser.Scene {
       this.createUnitSprite(unit, unit.x, unit.y, false); // false = unidad enemiga
     });
 
+    this.emitirActualizacionDeAltura();
+
     console.log(`[GameScene] ${playerUnits.length} player units and ${enemyUnits.length} enemy units rendered`);
   }
 
@@ -526,6 +535,9 @@ export class GameScene extends Phaser.Scene {
     this.actualizarEstadoBotonRecarga();
     this.actualizarArmamentoUI();
     this.actualizarEstadoBotonMisil();
+
+    //Se notifica al panel de altura
+    this.emitirActualizacionDeAltura()
   }
 
   // ===== METODOS DE CONVERSION MUNDO A PANTALLA =====
@@ -899,6 +911,10 @@ export class GameScene extends Phaser.Scene {
     // Click derecho: deselecciona
     // Click izquierdo en mapa: mueve a la unidad seleccionada
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
+      if (pointer.y >= this.scale.height * 0.8) {
+        return;
+      }
+
       if (pointer.rightButtonDown()) {
         this.selectionManager?.deselectUnit();
         return;
@@ -931,6 +947,10 @@ export class GameScene extends Phaser.Scene {
 
     // Rueda para altura: wheel ajusta Z en pasos fijos
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
+      if (_pointer.y >= this.scale.height * 0.8) {
+        return;
+      }
+
       if (!this.websocketClient || !this.selectionManager) {return}
 
       const unidadSeleccionada = this.selectionManager.getSelectedUnit();
@@ -1684,6 +1704,18 @@ export class GameScene extends Phaser.Scene {
       return 'Portadrones destruido y unidades restantes sin combustible o munición.';
     }
     return 'Portadrones destruido y no se destruyó el rival en 2 minutos.';
+  }
+
+  private emitirActualizacionDeAltura(): void {
+    const unidades = Array.from(this.knownUnits.values()).map(unidad => ({
+      idUnidad: unidad.unitId,
+      x: unidad.x,
+      z: unidad.z,
+      tipo: unidad.type,
+      esUnidadJugador: this.playerUnitIds.has(unidad.unitId),
+      salud: unidad.health,
+    }));
+    this.game.events.emit('altura-unidades-actualizada', unidades);
   }
 }
 
