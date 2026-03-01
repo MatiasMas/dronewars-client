@@ -1,11 +1,16 @@
 import Phaser from 'phaser';
 import {GameScene} from "./scenes/GameScene";
+import {SideViewScene} from "./scenes/SideViewScene";
 
 const config: Phaser.Types.Core.GameConfig = {
     type: Phaser.AUTO,
-    width: 1200,
-    height: 800,
+    width: window.innerWidth,
+    height: window.innerHeight,
     backgroundColor: '#1a1a2e',
+    scale: {
+        mode: Phaser.Scale.RESIZE,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
     physics: {
         default: 'arcade',
         arcade: {
@@ -16,7 +21,7 @@ const config: Phaser.Types.Core.GameConfig = {
             debug: false
         }
     },
-    scene: [GameScene]
+    scene: [GameScene, SideViewScene]
 };
 
 new Phaser.Game(config);

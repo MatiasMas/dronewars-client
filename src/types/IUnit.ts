@@ -10,6 +10,7 @@ export interface IUnit {
   x: number,
   y: number,
   z: number,
-  health: number
+  health: number,
+  combustible?: number
 }
 
