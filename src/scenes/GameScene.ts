@@ -1,5 +1,6 @@
 import {WebSocketClient} from "../network/WebSocketClient";
 import {SelectionManager} from "../managers/SelectionManager";
+import {AnimationManager} from "../managers/AnimationManager";
 import {ClientInternalEvents, ServerToClientEvents} from "../types/CommunicationEvents";
 import {IUnit} from "../types/IUnit";
 import {IAvailablePlayer} from "../types/IAvailablePlayer";
@@ -14,7 +15,7 @@ import { IGameEnded } from "../types/IGameEnded";
 
 type UnitVisual = {
   container: Phaser.GameObjects.Container;
-  body: Phaser.GameObjects.Rectangle;
+  sprite: Phaser.GameObjects.Sprite;
   label: Phaser.GameObjects.Text;
 };
 
@@ -96,318 +97,13 @@ export class GameScene extends Phaser.Scene {
 
   preload(): void {
     this.load.image('ocean', 'images/ocean.png');
-
-    this.load.spritesheet('droneChinoMovLateral',
-        'assets/drone/chinese/Dron_Chino_Movimiento_Lateral.png',
-        { frameWidth: 48,
-          frameHeight: 18 }
-    );
-
-    this.load.spritesheet('droneChinoDesLateral',
-        'assets/drone/chinese/Dron_Chino_Destruccion_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    )
-
-    this.load.spritesheet('droneChinoBombLateral',
-        'assets/drone/chinese/Dron_Chino_Bomba_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    )
-
-    this.load.spritesheet('droneChinoMovCenital',
-        'assets/drone/chinese/Dron_Chino_Movimiento_Cenital.png',
-        { frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('droneChinoDesCenital',
-        'assets/drone/chinese/Dron_Chino_Destruccion_Cenital.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-
-    ;this.load.spritesheet('dronePortuguesMovLateral',
-        'assets/drone/portuguese/Dron_Portugues_Movimiento_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('dronePortuguesDesLateral',
-        'assets/drone/portuguese/Dron_Portugues_Destruccion_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('dronePortuguesMisilLateral',
-        'assets/drone/portuguese/Dron_Portugues_Misil_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('dronePortuguesMovCenital',
-        'assets/drone/portuguese/Dron_Portugues_Movimiento_Cenital.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('dronePortuguesDesCenital',
-        'assets/drone/portuguese/Dron_Portugues_Destruccion_Cenital.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-
-    ;this.load.spritesheet('carrierChinoMovLateral',
-        'assets/carriers/chinese/Portadrones_Chino_Movimiento_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('carrierChinoDesLateral',
-        'assets/carriers/chinese/Portadrones_Chino_Destruccion_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('carrierChinoMovCenital',
-        'assets/carriers/chinese/Portadrones_Chino_Movimiento_Cenital.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('carrierChinoDesCenital',
-        'assets/carriers/chinese/Portadrones_Chino_Destruccion_Cenital.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('carrierPortuguesMovLateral',
-        'assets/carriers/portuguese/Portadrones_Portugues_Movimiento_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('carrierPortuguesDesLateral',
-        'assets/carriers/portuguese/Portadrones_Portugues_Destruccion_Lateral.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('carrierPortuguesMovCenital',
-        'assets/carriers/portuguese/Portadrones_Portugues_Movimiento_Cenital.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
-    ;this.load.spritesheet('carrierPortuguesDesCenital',
-        'assets/carriers/portuguese/Portadrones_Portugues_Destruccion_Cenital.png',
-        {
-          frameWidth: 48,
-          frameHeight: 48 }
-    );
-
+    AnimationManager.preload(this);
   }
 
 
   async create() {
     console.log("[GameScene] Creating scene...");
-
-    this.anims.create({
-      key: 'droneChinoMLateral',
-      frames: this.anims.generateFrameNumbers('droneChinoMovLateral', {
-        start: 0,
-        end: 3
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'droneChinoDLateral',
-      frames: this.anims.generateFrameNumbers('droneChinoDesLateral', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'droneChinoBmLateral',
-      frames: this.anims.generateFrameNumbers('droneChinoBombLateral', {
-        start: 0,
-        end: 5
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'droneChinoMCenital',
-      frames: this.anims.generateFrameNumbers('droneChinoMovCenital', {
-        start: 0,
-        end: 3
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'droneChinoDCenital',
-      frames: this.anims.generateFrameNumbers('droneChinoDesCenital', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'dronePortuguesMLateral',
-      frames: this.anims.generateFrameNumbers('dronePortuguesMovLateral', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'dronePortuguesDLateral',
-      frames: this.anims.generateFrameNumbers('dronePortuguesDesLateral', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'dronePortuguesMsLateral',
-      frames: this.anims.generateFrameNumbers('dronePortuguesMisilLateral', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'dronePortuguesMCenital',
-      frames: this.anims.generateFrameNumbers('dronePortuguesMovCenital', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'dronePortuguesDCenital',
-      frames: this.anims.generateFrameNumbers('dronePortuguesDesCenital', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'carrierChinoMLateral',
-      frames: this.anims.generateFrameNumbers('carrierChinoMovLateral', {
-        start: 0,
-        end: 3
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'carrierChinoDLateral',
-      frames: this.anims.generateFrameNumbers('carrierChinoDesLateral', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'carrierChinoMCenital',
-      frames: this.anims.generateFrameNumbers('carrierChinoMovCenital', {
-        start: 0,
-        end: 3
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'carrierChinoDCenital',
-      frames: this.anims.generateFrameNumbers('carrierChinoDesCenital', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'carrierPortuguesMLateral',
-      frames: this.anims.generateFrameNumbers('carrierPortuguesMovLateral', {
-        start: 0,
-        end: 6
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'carrierPortuguesDLateral',
-      frames: this.anims.generateFrameNumbers('carrierPortuguesDesLateral', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
-
-    this.anims.create({
-      key: 'carrierPortuguesMCenital',
-      frames: this.anims.generateFrameNumbers('carrierPortuguesMovCenital', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: -1
-    });
-
-    this.anims.create({
-      key: 'carrierPortuguesDCenital',
-      frames: this.anims.generateFrameNumbers('carrierPortuguesDesCenital', {
-        start: 0,
-        end: 7
-      }),
-      frameRate: 6,
-      repeat: 0
-    });
+    AnimationManager.createAnimations(this);
 
     // Creando imagen de background
     const background = this.add.image(GameScene.MAP_MAX_X / 2, GameScene.MAP_MAX_Y / 2, 'ocean');
@@ -567,7 +263,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
-      this.clearSelectoinHighlight()
+      this.clearSelectionHighlight()
       this.updateSelectedUnitCoordsText()
     })
 
@@ -730,40 +426,109 @@ export class GameScene extends Phaser.Scene {
 
   private createUnitSprite(unit: IUnit, x: number, y: number, isPlayerUnit: boolean): void {
     // x, y = coordenadas MUNDO. El container va en (x,y); los hijos en posiciones RELATIVAS al container (0,0), (0,20)...
-    const body = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
-    body.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
-    body.setInteractive({useHandCursor: true});
+    const esUnidadJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    const esDron = this.esUnidadDron(unit);
+    const esCarrier = this.esPortadrones(unit);
 
-    const label = this.add.text(0, 0, this.getUnitLabel(unit.type), {
+    let animKey: string;
+    let textureKey: string;
+
+    if (esDron) {
+      if (esUnidadJugadorUno) {
+        animKey = AnimationManager.KEYS.droneChinoMCenital;
+        textureKey = "droneChinoMovCenital";
+      } else {
+        animKey = AnimationManager.KEYS.dronePortuguesMCenital;
+        textureKey = "dronePortuguesMovCenital";
+      }
+    } else if (esCarrier) {
+      if (esUnidadJugadorUno) {
+        animKey = AnimationManager.KEYS.carrierChinoMCenital;
+        textureKey = "carrierChinoMovCenital";
+      } else {
+        animKey = AnimationManager.KEYS.carrierPortuguesMCenital;
+        textureKey = "carrierPortuguesMovCenital";
+      }
+    } else {
+      // Fallback muy raro: tipo desconocido, usar un rectángulo simple
+      const fallbackBody = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
+      fallbackBody.setInteractive({ useHandCursor: true });
+
+      const fallbackLabel = this.add.text(0, 0, this.getUnitLabel(unit.type), {
+        fontSize: '12px',
+        color: '#ffffff',
+        align: 'center'
+      }).setOrigin(0.5);
+
+      const hpTextFallback = this.add.text(0, 20, `HP:${unit.health}`, {
+        fontSize: '11px',
+        color: '#ffffff',
+        align: 'center'
+      }).setOrigin(0.5);
+
+      const fuelTextFallback = this.add.text(0, 32, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
+        fontSize: '11px',
+        color: '#ffffff',
+        align: 'center'
+      }).setOrigin(0.5);
+
+      const fallbackContainer = this.add.container(x, y, [fallbackBody, fallbackLabel, hpTextFallback, fuelTextFallback]);
+
+      this.unitHealthLabels.set(unit.unitId, hpTextFallback);
+      this.unitFuelLabels.set(unit.unitId, fuelTextFallback);
+
+      fallbackBody.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        if (!pointer.leftButtonDown()) {
+          return;
+        }
+
+        if (isPlayerUnit) {
+          this.selectionManager?.selectUnit(unit.unitId);
+          return;
+        }
+      });
+
+      fallbackBody.on('pointerover', () => fallbackContainer.setScale(1.1));
+      fallbackBody.on('pointerout', () => fallbackContainer.setScale(1));
+
+      this.unitSprites.set(unit.unitId, { container: fallbackContainer, sprite: fallbackBody as any, label: fallbackLabel });
+      return;
+    }
+
+    const sprite = this.add.sprite(0, 0, textureKey, 0);
+    sprite.setOrigin(0.5);
+    sprite.setInteractive({ useHandCursor: true });
+    sprite.play(animKey);
+
+    const label = this.add.text(0, -36, this.getUnitLabel(unit.type), {
       fontSize: '12px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
 
-    const hpText = this.add.text(0, 20, `HP:${unit.health}`, {
+    const hpText = this.add.text(0, 28, `HP:${unit.health}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
 
-    const fuelText = this.add.text(0, 32, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
+    const fuelText = this.add.text(0, 40, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
 
-    const container = this.add.container(x, y, [body, label, hpText, fuelText]);
+    const container = this.add.container(x, y, [sprite, label, hpText, fuelText]);
 
     if (unit.health <= 0) {
-      body.setFillStyle(0x666666);
-      body.setStrokeStyle(2, 0x666666);
-      body.disableInteractive();
+      sprite.setTint(0x666666);
+      sprite.disableInteractive();
     }
 
     this.unitHealthLabels.set(unit.unitId, hpText);
     this.unitFuelLabels.set(unit.unitId, fuelText);
 
-    body.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+    sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (!pointer.leftButtonDown()) {
         return;
       }
@@ -774,10 +539,10 @@ export class GameScene extends Phaser.Scene {
       }
     });
 
-    body.on('pointerover', () => container.setScale(1.1));
-    body.on('pointerout', () => container.setScale(1));
+    sprite.on('pointerover', () => container.setScale(1.1));
+    sprite.on('pointerout', () => container.setScale(1));
 
-    this.unitSprites.set(unit.unitId, { container, body, label });
+    this.unitSprites.set(unit.unitId, { container, sprite, label });
 
     // Para portadrones aliados: crear indicador de recarga
     if (isPlayerUnit && this.esPortadrones(unit)) {
@@ -790,26 +555,27 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private clearSelectoinHighlight(): void {
+  private clearSelectionHighlight(): void {
     this.unitSprites.forEach((sprite, unitId) => {
       const unit = this.knownUnits.get(unitId);
       if (unit && unit.health <= 0) {
-        sprite.body.setStrokeStyle(2, 0x666666);
+        sprite.sprite.setTint(0x666666);
         return;
       }
       const isPlayerUnit = this.playerUnitIds.has(unitId);
-      sprite.body.setStrokeStyle(2, isPlayerUnit ? 0x00ff00 : 0xff0000);
+      sprite.sprite.clearTint();
+      sprite.sprite.setTint(isPlayerUnit ? 0x00ff00 : 0xff0000);
     });
   }
 
   private highlightUnit(unitId: string): void {
     this.unitSprites.forEach(sprite => {
-      sprite.body.setStrokeStyle(2, 0x888888);
+      sprite.sprite.setTint(0x888888);
     });
 
     const selectedSprite = this.unitSprites.get(unitId);
     if (selectedSprite) {
-      selectedSprite.body.setStrokeStyle(4, 0xffff00);
+      selectedSprite.sprite.setTint(0xffff00);
     }
   }
 
@@ -2147,7 +1913,7 @@ export class GameScene extends Phaser.Scene {
 
     // Bloquea selección/interacciones
     this.selectionManager?.deselectUnit();
-    this.unitSprites.forEach(s => s.body.disableInteractive());
+    this.unitSprites.forEach(s => s.sprite.disableInteractive());
     this.botonRecargaContenedor?.disableInteractive();
     this.botonMisilContenedor?.disableInteractive();
     this.botonApuntarContenedor?.disableInteractive();
