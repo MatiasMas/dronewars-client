@@ -223,6 +223,42 @@ export class GameScene extends Phaser.Scene {
           frameHeight: 48 }
     );
 
+    ;this.load.spritesheet('effectsBombShot',
+        'assets/effects/Bomba_Disparo.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('effectsBombImpact',
+        'assets/effects/Bomba_Impacto.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('effectsMisilShot',
+        'assets/effects/Misil_Disparo.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('effectsMisilImpact',
+        'assets/effects/Misil_Impacto.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+    ;this.load.spritesheet('effectsExplosion',
+        'assets/effects/Explosion.png',
+        {
+          frameWidth: 48,
+          frameHeight: 48 }
+    );
+
+
   }
 
 
@@ -404,6 +440,56 @@ export class GameScene extends Phaser.Scene {
       frames: this.anims.generateFrameNumbers('carrierPortuguesDesCenital', {
         start: 0,
         end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'effectsBS',
+      frames: this.anims.generateFrameNumbers('effectsBombShot', {
+        start: 0,
+        end: 6
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'effectsBI',
+      frames: this.anims.generateFrameNumbers('effectsBombImpact', {
+        start: 0,
+        end: 9
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'effectsMS',
+      frames: this.anims.generateFrameNumbers('effectsMisilShot', {
+        start: 0,
+        end: 7
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'effectsMI',
+      frames: this.anims.generateFrameNumbers('effectsMisilImpact', {
+        start: 0,
+        end: 9
+      }),
+      frameRate: 6,
+      repeat: 0
+    });
+
+    this.anims.create({
+      key: 'effectsExp',
+      frames: this.anims.generateFrameNumbers('effectsExplosion', {
+        start: 0,
+        end: 5
       }),
       frameRate: 6,
       repeat: 0
