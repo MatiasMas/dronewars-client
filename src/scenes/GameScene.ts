@@ -167,24 +167,63 @@ export class GameScene extends Phaser.Scene {
 
     this.setupEventListeners();
     this.drawUI();
-    this.createBombAttackButton();
-    this.crearBotonMisil();
-    this.crearBotonApuntar();
     this.updateSelectedUnitCoordsText();
-    this.crearBotonRecarga();
     this.cursors = this.input.keyboard?.createCursorKeys() ?? null;
     this.ascendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
     this.descendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL) ?? null;
     this.input.mouse?.disableContextMenu();
     this.setupPointerControls();
+    this.configurarDisparoConEspacio();
+    this.configurarDeseleccionConEscape();
     this.input.keyboard?.addCapture([
       Phaser.Input.Keyboard.KeyCodes.UP,
       Phaser.Input.Keyboard.KeyCodes.DOWN,
       Phaser.Input.Keyboard.KeyCodes.LEFT,
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
       Phaser.Input.Keyboard.KeyCodes.SHIFT,
-      Phaser.Input.Keyboard.KeyCodes.CTRL
+      Phaser.Input.Keyboard.KeyCodes.CTRL,
+      Phaser.Input.Keyboard.KeyCodes.ESC
     ]);
+  }
+
+  private configurarDisparoConEspacio(): void {
+    if (!this.input.keyboard) {
+      return;
+    }
+
+    this.input.keyboard.on("keydown-SPACE", (evento: KeyboardEvent) => {
+      if (evento.repeat) {
+        return; // evita disparos multiples por dejar apretada la tecla
+      }
+
+      const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
+      if (!unidadSeleccionada) {
+        console.log("[GameScene] No hay unidad seleccionada");
+        return;
+      }
+
+      const esJugadorDeBombas = this.esJugadorUno();
+      if (esJugadorDeBombas) {
+        this.launchBombFromSelectedUnit();
+        return;
+      }
+
+      this.lanzarMisilDesdeSeleccion();
+    });
+  }
+
+  private configurarDeseleccionConEscape(): void {
+    if (!this.input.keyboard) {
+      return;
+    }
+
+    this.input.keyboard.on("keydown-ESC", (evento: KeyboardEvent) => {
+      if (evento.repeat) {
+        return;
+      }
+
+      this.selectionManager?.deselectUnit();
+    });
   }
 
   private async waitForAvailablePlayers(): Promise<void> {
@@ -1154,7 +1193,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupPointerControls(): void {
-    // Click derecho: deselecciona
+    // Click derecho en mapa: apunta misil
     // Click izquierdo en mapa: mueve a la unidad seleccionada
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
       if (pointer.y >= this.scale.height * 0.8) {
@@ -1162,7 +1201,9 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (pointer.rightButtonDown()) {
-        this.selectionManager?.deselectUnit();
+        // Si hay objetos interactivos debajo, no es click de mapa
+        if (gameObjects && gameObjects.length > 0) {return}
+        this.apuntarMisilConClickDerecho(pointer);
         return;
       }
 
@@ -1170,17 +1211,6 @@ export class GameScene extends Phaser.Scene {
 
       // Si hay objetos interactivos debajo, no es un click de mapa
       if (gameObjects && gameObjects.length > 0) {return}
-
-      if (this.apuntandoMisil) {
-        // Convertir posición de pantalla a mundo
-        const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
-        this.objetivoMisilPunto = { x: objetivoMundo.x, y: objetivoMundo.y };
-        this.apuntandoMisil = false;
-        this.actualizarMarcadorObjetivoMisil();
-        this.actualizarEstadoBotonApuntar();
-        this.actualizarEstadoBotonMisil();
-        return;
-      }
 
       const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
       if (!unidadSeleccionada) {return}
@@ -1213,35 +1243,31 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private createBombAttackButton(): void {
-    const x = 140;
-    const y = 120;
-
-    const fondo = this.add.rectangle(0, 0, 220, 44, 0x8b0000)
-      .setStrokeStyle(2, 0xffd166);
-
-    const label = this.add.text(0, 0, 'Lanzar Bomba (Click Izq)', {
-      fontSize: '14px',
-      color: '#ffffff',
-      fontStyle: 'bold'
-    }).setOrigin(0.5);
-
-    const contenedor = this.add.container(x, y, [fondo, label]);
-    contenedor.setScrollFactor(0).setDepth(100);
-    contenedor.setInteractive(new Phaser.Geom.Rectangle(-110, -22, 220, 44), Phaser.Geom.Rectangle.Contains);
-
-    contenedor.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown()) {
-        this.launchBombFromSelectedUnit();
-      }
-    });
-
-    if (!this.esJugadorUno()) {
-      contenedor.disableInteractive();
-      fondo.setFillStyle(0x4d4d4d, 1);
-      fondo.setStrokeStyle(2, 0x888888);
-      contenedor.setAlpha(0.6);
+  private apuntarMisilConClickDerecho(pointer: Phaser.Input.Pointer): void {
+    if (this.esJugadorUno()) {
+      return;
     }
+
+    const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
+    if (!unidadSeleccionada) {
+      return;
+    }
+
+    if (!this.playerUnitIds.has(unidadSeleccionada.unitId)) {
+      return;
+    }
+
+    if (!this.esUnidadDron(unidadSeleccionada)) {
+      return;
+    }
+
+    const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
+    this.objetivoMisilPunto = { x: objetivoMundo.x, y: objetivoMundo.y };
+    this.ultimoObjetivoMisilPunto = { x: objetivoMundo.x, y: objetivoMundo.y };
+    this.apuntandoMisil = false;
+    this.actualizarMarcadorObjetivoMisil();
+    this.actualizarEstadoBotonApuntar();
+    this.actualizarEstadoBotonMisil();
   }
 
   private launchBombFromSelectedUnit(): void {
@@ -1263,75 +1289,6 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.websocketClient?.requestBombAttack(selectedUnit.unitId);
-  }
-
-  private crearBotonMisil(): void {
-    const ancho = 220;
-    const alto = 44;
-    const x = this.cameras.main.width - 140;
-    const y = 120;
-
-    const fondo = this.add.rectangle(0, 0, ancho, alto, 0x0b3d91);
-    fondo.setStrokeStyle(2, 0x6cb6ff);
-
-    const texto = this.add.text(0, 0, 'Lanzar Misil (Click Izq)', {
-      fontSize: '14px',
-      color: '#ffffff',
-      fontStyle: 'bold'
-    }).setOrigin(0.5);
-
-    const contenedor = this.add.container(x, y, [fondo, texto]);
-    contenedor.setScrollFactor(0).setDepth(100);
-    contenedor.setInteractive(new Phaser.Geom.Rectangle(-ancho / 2, -alto / 2, ancho, alto), Phaser.Geom.Rectangle.Contains);
-
-    contenedor.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown()) {
-        this.lanzarMisilDesdeSeleccion();
-      }
-    });
-
-    this.botonMisilContenedor = contenedor;
-    this.textoBotonMisil = texto;
-    this.fondoBotonMisil = fondo;
-    this.actualizarEstadoBotonMisil();
-  }
-
-  private crearBotonApuntar(): void {
-    const lado = 70;
-    const x = this.cameras.main.width - 140;
-    const y = 200;
-
-    const fondo = this.add.rectangle(0, 0, lado, lado, 0x1b3a4b);
-    fondo.setStrokeStyle(2, 0x6cb6ff);
-
-    const texto = this.add.text(0, 0, 'Apuntar', {
-      fontSize: '12px',
-      color: '#ffffff',
-      fontStyle: 'bold',
-      align: 'center',
-      wordWrap: { width: lado - 10 }
-    }).setOrigin(0.5);
-
-    const contenedor = this.add.container(x, y, [fondo, texto]);
-    contenedor.setScrollFactor(0).setDepth(100);
-    contenedor.setInteractive(new Phaser.Geom.Rectangle(-lado / 2, -lado / 2, lado, lado), Phaser.Geom.Rectangle.Contains);
-
-    contenedor.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-      if (pointer.leftButtonDown()) {
-        this.apuntandoMisil = true;
-        this.actualizarEstadoBotonApuntar();
-      }
-    });
-
-    this.botonApuntarContenedor = contenedor;
-    this.textoBotonApuntar = texto;
-    this.fondoBotonApuntar = fondo;
-    this.actualizarEstadoBotonApuntar();
-
-    if (this.esJugadorUno()) {
-      this.botonApuntarContenedor.setVisible(false);
-      this.botonApuntarContenedor.disableInteractive();
-    }
   }
 
   private lanzarMisilDesdeSeleccion(): void {
