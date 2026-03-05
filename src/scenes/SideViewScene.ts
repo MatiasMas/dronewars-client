@@ -70,7 +70,7 @@ export class SideViewScene extends Phaser.Scene {
     this.puntosDeUnidad.clear();
 
     this.unidades.forEach(unidad => {
-      if (!this.esUnidadDron(unidad.type)) {
+      if (!this.esUnidadRenderizable(unidad.type)) {
         return;
       }
 
@@ -82,16 +82,19 @@ export class SideViewScene extends Phaser.Scene {
       const screenY = this.zAPantalla(unidad.z);
 
       const color = this.getColorUnidad(unidad.type, unidad.isPlayerUnit, unidad.health);
+      const esCarrier = this.esPortadrones(unidad.type);
 
-      const dot = this.add.circle(0, 0, 6, color);
-      dot.setStrokeStyle(1, unidad.isPlayerUnit ? 0x00ff88 : 0xff4444);
+      const figuraUnidad = esCarrier
+        ? this.add.rectangle(0, 0, 12, 12, color)
+        : this.add.circle(0, 0, 6, color);
+      figuraUnidad.setStrokeStyle(esCarrier ? 2 : 1, unidad.isPlayerUnit ? 0x00ff88 : 0xff4444);
 
       const label = this.add.text(0, -14, this.getEtiquetaUnidad(unidad.type), {
         fontSize: '9px',
         color: unidad.health <= 0 ? '#666666' : '#ffffff'
       }).setOrigin(0.5);
 
-      const container = this.add.container(screenX, screenY, [dot, label]);
+      const container = this.add.container(screenX, screenY, [figuraUnidad, label]);
       container.setDepth(5);
       this.puntosDeUnidad.set(unidad.unitId, container);
     });
@@ -114,8 +117,8 @@ export class SideViewScene extends Phaser.Scene {
     const colores: Record<string, number> = {
       AERIAL_DRONE:  esJugador ? 0xff6666 : 0xff2222,
       NAVAL_DRONE:   esJugador ? 0x6688ff : 0x2244ff,
-      AERIAL_CARRIER: 0xffff00,
-      NAVAL_CARRIER:  0x00ff88,
+      AERIAL_CARRIER: esJugador ? 0xffe066 : 0xffb703,
+      NAVAL_CARRIER:  esJugador ? 0x72efdd : 0x00b4d8,
     };
     return colores[tipo] ?? 0xffffff;
   }
@@ -132,5 +135,13 @@ export class SideViewScene extends Phaser.Scene {
 
   private esUnidadDron(tipo: string): boolean {
     return tipo === 'AERIAL_DRONE' || tipo === 'NAVAL_DRONE';
+  }
+
+  private esPortadrones(tipo: string): boolean {
+    return tipo === 'AERIAL_CARRIER' || tipo === 'NAVAL_CARRIER';
+  }
+
+  private esUnidadRenderizable(tipo: string): boolean {
+    return this.esUnidadDron(tipo) || this.esPortadrones(tipo);
   }
 }
