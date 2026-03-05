@@ -21,6 +21,12 @@ export class AnimationManager {
     carrierPortuguesDLateral: "carrierPortuguesDLateral",
     carrierPortuguesMCenital: "carrierPortuguesMCenital",
     carrierPortuguesDCenital: "carrierPortuguesDCenital",
+
+    effectsBS: "effectsBS",
+    effectsBI: "effectsBI",
+    effectsMS: "effectsMS",
+    effectsMI: "effectsMI",
+    effectsEX: "effectsEX",
   } as const;
 
   /**
@@ -184,6 +190,54 @@ export class AnimationManager {
     scene.load.spritesheet(
       "carrierPortuguesDesCenital",
       "assets/carriers/portuguese/Portadrones_Portugues_Destruccion_Cenital.png",
+      {
+        frameWidth: 48,
+        frameHeight: 48,
+      }
+    );
+    scene.load.spritesheet(
+      "effectsBombShot",
+      "assets/effects/Bomba_Disparo.png",
+      {
+        frameWidth: 48,
+        frameHeight: 48,
+      }
+    );
+
+
+    scene.load.spritesheet(
+      "effectsBombImpact",
+      "assets/effects/Bomba_Impacto.png",
+      {
+        frameWidth: 48,
+        frameHeight: 48,
+      }
+    );
+
+
+    scene.load.spritesheet(
+      "effectsMissileShot",
+      "assets/effects/Misil_Disparo.png",
+      {
+        frameWidth: 48,
+        frameHeight: 48,
+      }
+    );
+
+
+    scene.load.spritesheet(
+      "effectsMissileImpact",
+      "assets/effects/Misil_Impacto.png",
+      {
+        frameWidth: 48,
+        frameHeight: 48,
+      }
+    );
+
+
+    scene.load.spritesheet(
+      "effectsExplosion",
+      "assets/effects/Explosion.png",
       {
         frameWidth: 48,
         frameHeight: 48,
@@ -374,6 +428,56 @@ export class AnimationManager {
         start: 0,
         end: 7,
       }),
+      frameRate: 6,
+      repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.effectsBS,
+      frames: anims.generateFrameNumbers("effectsBombShot", {
+        start: 0,
+        end: 6,
+        }),
+      frameRate: 6,
+      repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.effectsBI,
+      frames: anims.generateFrameNumbers("effectsBombImpact", {
+        start: 0,
+        end: 9,
+        }),
+      frameRate: 6,
+      repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.effectsMS,
+      frames: anims.generateFrameNumbers("effectsMissileShot", {
+        start: 0,
+        end: 7,
+        }),
+      frameRate: 6,
+      repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.effectsMI,
+      frames: anims.generateFrameNumbers("effectsMissileImpact", {
+        start: 0,
+        end: 9,
+        }),
+      frameRate: 6,
+      repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.effectsEX,
+      frames: anims.generateFrameNumbers("effectsExplosion", {
+        start: 0,
+        end: 5,
+        }),
       frameRate: 6,
       repeat: 0,
     });
