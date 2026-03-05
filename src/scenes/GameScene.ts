@@ -26,19 +26,19 @@ export class GameScene extends Phaser.Scene {
   private knownUnits: Map<string, IUnit> = new Map();
   private playerUnitIds: Set<string> = new Set();
   private indicadoresRecarga: Map<string, Phaser.GameObjects.Arc> = new Map();
-  private cursors: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
-  private ascendKey: Phaser.Input.Keyboard.Key | null = null;
-  private descendKey: Phaser.Input.Keyboard.Key | null = null;
+  private teclaW: Phaser.Input.Keyboard.Key | null = null;
+  private teclaA: Phaser.Input.Keyboard.Key | null = null;
+  private teclaS: Phaser.Input.Keyboard.Key | null = null;
+  private teclaD: Phaser.Input.Keyboard.Key | null = null;
+  private teclaQ: Phaser.Input.Keyboard.Key | null = null;
+  private teclaE: Phaser.Input.Keyboard.Key | null = null;
+  private flechas: Phaser.Types.Input.Keyboard.CursorKeys | null = null;
   private unidadArrastradaId: string | null = null;
   private lastMoveRequestAt = 0;
   private availablePlayers: IAvailablePlayer[] = [];
   private bombSprites: Map<string, Phaser.GameObjects.Ellipse> = new Map();
   private spritesMisiles: Map<string, Phaser.GameObjects.Ellipse> = new Map();
   private posicionesMisiles: Map<string, { x: number; y: number }> = new Map();
-  private apuntandoMisil: boolean = false;
-  private objetivoMisilPunto: { x: number; y: number } | null = null;
-  private ultimoObjetivoMisilPunto: { x: number; y: number } | null = null;
-  private marcadorObjetivoMisil: Phaser.GameObjects.Rectangle | null = null;
   private unitHealthLabels: Map<string, Phaser.GameObjects.Text> = new Map();
   private unitFuelLabels: Map<string, Phaser.GameObjects.Text> = new Map();
   private selectedUnitCoordsText: Phaser.GameObjects.Text | null = null;
@@ -56,9 +56,6 @@ export class GameScene extends Phaser.Scene {
   private botonMisilContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonMisil: Phaser.GameObjects.Text | null = null;
   private fondoBotonMisil: Phaser.GameObjects.Rectangle | null = null;
-  private botonApuntarContenedor: Phaser.GameObjects.Container | null = null;
-  private textoBotonApuntar: Phaser.GameObjects.Text | null = null;
-  private fondoBotonApuntar: Phaser.GameObjects.Rectangle | null = null;
   private partidaFinalizada: boolean = false;
   private panelResultado: Phaser.GameObjects.Container | null = null;
   /** Centrar cámara en este punto en el próximo frame (al recibir unidades). */
@@ -76,7 +73,12 @@ export class GameScene extends Phaser.Scene {
 
   private static readonly MOVE_STEP = 5;
   private static readonly ALTITUDE_STEP = 0.5;
+  private static readonly ALTITUDE_SCROLL_FACTOR = 0.01;
+  private static readonly ALTITUDE_SCROLL_MAX_DELTA = 0.6;
+  private static readonly ALTITUDE_SCROLL_REPEAT_MS = 45;
   private static readonly MOVE_REPEAT_MS = 120;
+  private static readonly VELOCIDAD_CAMARA = 10;
+  private static readonly AJUSTE_ROTACION_FRENTE_RAD = 0;
   private static readonly RANGO_RECARGA_MUNDO = 120;
   private static readonly RANGO_DISPARO_MISIL = 30;
   private static readonly BOMBAS_POR_DRON = 1;
@@ -168,20 +170,28 @@ export class GameScene extends Phaser.Scene {
     this.setupEventListeners();
     this.drawUI();
     this.updateSelectedUnitCoordsText();
-    this.cursors = this.input.keyboard?.createCursorKeys() ?? null;
-    this.ascendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT) ?? null;
-    this.descendKey = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.CTRL) ?? null;
+    this.teclaW = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.W) ?? null;
+    this.teclaA = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.A) ?? null;
+    this.teclaS = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.S) ?? null;
+    this.teclaD = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.D) ?? null;
+    this.teclaQ = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.Q) ?? null;
+    this.teclaE = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.E) ?? null;
+    this.flechas = this.input.keyboard?.createCursorKeys() ?? null;
     this.input.mouse?.disableContextMenu();
     this.setupPointerControls();
     this.configurarDisparoConEspacio();
     this.configurarDeseleccionConEscape();
     this.input.keyboard?.addCapture([
+      Phaser.Input.Keyboard.KeyCodes.W,
+      Phaser.Input.Keyboard.KeyCodes.A,
+      Phaser.Input.Keyboard.KeyCodes.S,
+      Phaser.Input.Keyboard.KeyCodes.D,
+      Phaser.Input.Keyboard.KeyCodes.Q,
+      Phaser.Input.Keyboard.KeyCodes.E,
       Phaser.Input.Keyboard.KeyCodes.UP,
       Phaser.Input.Keyboard.KeyCodes.DOWN,
       Phaser.Input.Keyboard.KeyCodes.LEFT,
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
-      Phaser.Input.Keyboard.KeyCodes.SHIFT,
-      Phaser.Input.Keyboard.KeyCodes.CTRL,
       Phaser.Input.Keyboard.KeyCodes.ESC
     ]);
   }
@@ -383,7 +393,17 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
-    if (!this.websocketClient || !this.selectionManager || !this.cursors) {
+    if (
+      !this.websocketClient ||
+      !this.selectionManager ||
+      !this.teclaW ||
+      !this.teclaA ||
+      !this.teclaS ||
+      !this.teclaD ||
+      !this.teclaQ ||
+      !this.teclaE ||
+      !this.flechas
+    ) {
       return;
     }
     if (this.partidaFinalizada) {
@@ -394,44 +414,45 @@ export class GameScene extends Phaser.Scene {
     this.actualizarIndicadoresRecarga();
     this.actualizarEstadoBotonRecarga();
     this.actualizarEstadoBotonMisil();
-    this.actualizarEstadoBotonApuntar();
 
-    // Movimiento por teclado: flechas + SHIFT/CTRL para altura
+    // Movimiento por teclado: flechas para unidad + Q/E para altura
     const unidadSeleccionada = this.selectionManager.getSelectedUnit();
     if (!unidadSeleccionada) {
+      this.moverCamaraLibreConWASD();
       return;
     }
 
-    let dx = 0;
-    let dy = 0;
-    let dz = 0;
+    let deltaX = 0;
+    let deltaY = 0;
+    let deltaZ = 0;
 
-    if (this.cursors.left?.isDown) {
-      dx -= GameScene.MOVE_STEP;
-    } else if (this.cursors.right?.isDown) {
-      dx += GameScene.MOVE_STEP;
+    if (this.flechas.left?.isDown) {
+      deltaX -= GameScene.MOVE_STEP;
+    }
+    if (this.flechas.right?.isDown) {
+      deltaX += GameScene.MOVE_STEP;
+    }
+    if (this.flechas.up?.isDown) {
+      deltaY -= GameScene.MOVE_STEP;
+    }
+    if (this.flechas.down?.isDown) {
+      deltaY += GameScene.MOVE_STEP;
+    }
+    if (this.teclaQ.isDown) {
+      deltaZ += GameScene.ALTITUDE_STEP;
+    }
+    if (this.teclaE.isDown) {
+      deltaZ -= GameScene.ALTITUDE_STEP;
     }
 
-    if (this.cursors.up?.isDown) {
-      dy -= GameScene.MOVE_STEP;
-    } else if (this.cursors.down?.isDown) {
-      dy += GameScene.MOVE_STEP;
-    }
-
-    if (this.ascendKey?.isDown) {
-      dz += GameScene.ALTITUDE_STEP;
-    } else if (this.descendKey?.isDown) {
-      dz -= GameScene.ALTITUDE_STEP;
-    }
-
-    if (dx === 0 && dy === 0 && dz === 0) {
+    if (deltaX === 0 && deltaY === 0 && deltaZ === 0) {
       return;
     }
 
     const unidadActual = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
-    const objetivoX = unidadActual.x + dx;
-    const objetivoY = unidadActual.y + dy;
-    const objetivoZ = unidadActual.z + dz;
+    const objetivoX = unidadActual.x + deltaX;
+    const objetivoY = unidadActual.y + deltaY;
+    const objetivoZ = unidadActual.z + deltaZ;
 
     this.solicitarMovimiento(unidadSeleccionada.unitId, objetivoX, objetivoY, objetivoZ);
 
@@ -439,7 +460,6 @@ export class GameScene extends Phaser.Scene {
     this.actualizarIndicadoresRecarga();
     this.actualizarEstadoBotonRecarga();
     this.actualizarEstadoBotonMisil();
-    this.actualizarEstadoBotonApuntar();
   }
 
   // ------------- Interfaz -----------------
@@ -632,15 +652,15 @@ export class GameScene extends Phaser.Scene {
     this.indicadoresRecarga.clear();
   }
 
-  private obtenerRangoVisionDron(dron: IUnit): number {
-    const esJugadorUno = this.esUnidadDeJugador1(dron.unitId);
+  private obtenerRangoVisionUnidad(unidad: IUnit): number {
+    const esJugadorUno = this.esUnidadDeJugador1(unidad.unitId);
     const rangoBase = esJugadorUno ? GameScene.RANGO_VISION_BOMBAS : GameScene.RANGO_VISION_MISILES;
     const maxZ = this.obtenerMaxZParaJugador();
     if (maxZ <= 0) {
       return rangoBase;
     }
 
-    const z = Phaser.Math.Clamp(dron.z, 0, maxZ);
+    const z = Phaser.Math.Clamp(unidad.z, 0, maxZ);
     const factorZ = z / maxZ;
     const factor = GameScene.FACTOR_VISION_MIN_Z
       + (GameScene.FACTOR_VISION_MAX_Z - GameScene.FACTOR_VISION_MIN_Z) * factorZ;
@@ -649,7 +669,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private actualizarVisibilidadEnemigos(): void {
-    const dronesPropios = this.obtenerDronesJugador();
+    const unidadesConVisionPropias = this.obtenerUnidadesConVisionJugador();
 
     for (const [unitId, unidad] of this.knownUnits.entries()) {
       if (this.playerUnitIds.has(unitId)) {
@@ -658,10 +678,10 @@ export class GameScene extends Phaser.Scene {
 
       let visible = false;
 
-      for (const dron of dronesPropios) {
-        const dx = dron.x - unidad.x;
-        const dy = dron.y - unidad.y;
-          const rango = this.obtenerRangoVisionDron(dron);
+      for (const unidadConVision of unidadesConVisionPropias) {
+        const dx = unidadConVision.x - unidad.x;
+        const dy = unidadConVision.y - unidad.y;
+          const rango = this.obtenerRangoVisionUnidad(unidadConVision);
           const distancia2 = dx * dx + dy * dy;
 
         if (distancia2 <= rango * rango) {
@@ -703,10 +723,10 @@ export class GameScene extends Phaser.Scene {
     // Dibujamos la mascara de vision (se invierte para dejar claro dentro del circulo)
     this.mascaraVision.clear();
     this.mascaraVision.fillStyle(0xffffff, 1);
-    const dronesPropios = this.obtenerDronesJugador();
-    for (const dron of dronesPropios) {
-        const rango = this.obtenerRangoVisionDron(dron);
-        this.mascaraVision.fillCircle(dron.x, dron.y, rango);
+    const unidadesConVisionPropias = this.obtenerUnidadesConVisionJugador();
+    for (const unidadConVision of unidadesConVisionPropias) {
+        const rango = this.obtenerRangoVisionUnidad(unidadConVision);
+        this.mascaraVision.fillCircle(unidadConVision.x, unidadConVision.y, rango);
     }
   }
 
@@ -714,6 +734,8 @@ export class GameScene extends Phaser.Scene {
     // Sincroniza posiciones de todas las unidades con el estado enviado por el servidor
     unitPositions.forEach(update => {
       const unit = this.knownUnits.get(update.unitId);
+      const posicionAnteriorX = unit?.x;
+      const posicionAnteriorY = unit?.y;
       if (unit) {
         unit.x = update.position.x;
         unit.y = update.position.y;
@@ -730,6 +752,16 @@ export class GameScene extends Phaser.Scene {
       const sprite = this.unitSprites.get(update.unitId);
 
       if (sprite) {
+        if (typeof posicionAnteriorX === 'number' && typeof posicionAnteriorY === 'number') {
+          this.girarSpriteDesdeHasta(
+            update.unitId,
+            posicionAnteriorX,
+            posicionAnteriorY,
+            update.position.x,
+            update.position.y
+          );
+        }
+
         // Las coordenadas son del MUNDO, Phaser las renderizará según la cámara
         sprite.container.setPosition(update.position.x, update.position.y);
         if (typeof update.combustible === 'number') {
@@ -823,6 +855,78 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setScroll(scrollX, scrollY);
   }
 
+  private moverCamaraLibreConWASD(): void {
+    if (!this.teclaW || !this.teclaA || !this.teclaS || !this.teclaD) {
+      return;
+    }
+
+    let movimientoX = 0;
+    let movimientoY = 0;
+
+    if (this.teclaA.isDown) {
+      movimientoX -= GameScene.VELOCIDAD_CAMARA;
+    }
+    if (this.teclaD.isDown) {
+      movimientoX += GameScene.VELOCIDAD_CAMARA;
+    }
+    if (this.teclaW.isDown) {
+      movimientoY -= GameScene.VELOCIDAD_CAMARA;
+    }
+    if (this.teclaS.isDown) {
+      movimientoY += GameScene.VELOCIDAD_CAMARA;
+    }
+
+    if (movimientoX === 0 && movimientoY === 0) {
+      return;
+    }
+
+    const camara = this.cameras.main;
+    const anchoMapa = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
+    const altoMapa = GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y;
+    const maxScrollX = Math.max(GameScene.MAP_MIN_X, GameScene.MAP_MIN_X + anchoMapa - camara.width);
+    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - camara.height);
+
+    const nuevoScrollX = Phaser.Math.Clamp(camara.scrollX + movimientoX, GameScene.MAP_MIN_X, maxScrollX);
+    const nuevoScrollY = Phaser.Math.Clamp(camara.scrollY + movimientoY, GameScene.MAP_MIN_Y, maxScrollY);
+
+    camara.setScroll(nuevoScrollX, nuevoScrollY);
+  }
+
+  // Hace que el frente del sprite mire hacia un punto del mapa.
+  private girarUnidadHaciaPunto(unidadId: string, objetivoX: number, objetivoY: number): void {
+    const unidad = this.knownUnits.get(unidadId);
+    const sprite = this.unitSprites.get(unidadId);
+    if (!sprite) {
+      return;
+    }
+
+    const origenX = unidad?.x ?? sprite.container.x;
+    const origenY = unidad?.y ?? sprite.container.y;
+    this.girarSpriteDesdeHasta(unidadId, origenX, origenY, objetivoX, objetivoY);
+  }
+
+  private girarSpriteDesdeHasta(
+    unidadId: string,
+    origenX: number,
+    origenY: number,
+    destinoX: number,
+    destinoY: number
+  ): void {
+    const sprite = this.unitSprites.get(unidadId);
+    if (!sprite) {
+      return;
+    }
+
+    const dx = destinoX - origenX;
+    const dy = destinoY - origenY;
+    if (dx * dx + dy * dy < 0.0001) {
+      return;
+    }
+
+    const angulo = Phaser.Math.Angle.Between(origenX, origenY, destinoX, destinoY);
+    sprite.sprite.setRotation(angulo + GameScene.AJUSTE_ROTACION_FRENTE_RAD);
+  }
+
   /**
    * Al inicio del juego, enfoca la cámara en el portadrones del jugador:
    * Player 1 -> AERIAL_CARRIER, Player 2 -> NAVAL_CARRIER.
@@ -897,7 +1001,7 @@ export class GameScene extends Phaser.Scene {
     this.add.text(
       20,
       70,
-      'Click izq: seleccionar/mover | Click der: deseleccionar',
+      'WASD: mover mapa libre | Flechas: mover unidad | Q/E y rueda: altura',
       {fontSize: '14px', color: '#cccccc'}
     ).setScrollFactor(0).setDepth(100);
 
@@ -1193,7 +1297,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupPointerControls(): void {
-    // Click derecho en mapa: apunta misil
+    // Click derecho en mapa: deselecciona
     // Click izquierdo en mapa: mueve a la unidad seleccionada
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
       if (pointer.y >= this.scale.height * 0.8) {
@@ -1201,9 +1305,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (pointer.rightButtonDown()) {
-        // Si hay objetos interactivos debajo, no es click de mapa
-        if (gameObjects && gameObjects.length > 0) {return}
-        this.apuntarMisilConClickDerecho(pointer);
+        this.selectionManager?.deselectUnit();
         return;
       }
 
@@ -1235,39 +1337,22 @@ export class GameScene extends Phaser.Scene {
       if (!this.playerUnitIds.has(unidadSeleccionada.unitId)) {return}
 
       const unidad = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada
-      const direccion = Math.sign(deltaY);
-      if (direccion === 0) {return}
+      const deltaZRaw = -deltaY * GameScene.ALTITUDE_SCROLL_FACTOR;
+      if (Math.abs(deltaZRaw) < 0.01) {return}
 
-      const deltaZ = direccion > 0 ? -GameScene.ALTITUDE_STEP : GameScene.ALTITUDE_STEP;
-      this.solicitarMovimiento(unidadSeleccionada.unitId, unidad.x, unidad.y, unidad.z + deltaZ);
+      const deltaZ = Phaser.Math.Clamp(
+        deltaZRaw,
+        -GameScene.ALTITUDE_SCROLL_MAX_DELTA,
+        GameScene.ALTITUDE_SCROLL_MAX_DELTA
+      );
+      this.solicitarMovimiento(
+        unidadSeleccionada.unitId,
+        unidad.x,
+        unidad.y,
+        unidad.z + deltaZ,
+        GameScene.ALTITUDE_SCROLL_REPEAT_MS
+      );
     });
-  }
-
-  private apuntarMisilConClickDerecho(pointer: Phaser.Input.Pointer): void {
-    if (this.esJugadorUno()) {
-      return;
-    }
-
-    const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
-    if (!unidadSeleccionada) {
-      return;
-    }
-
-    if (!this.playerUnitIds.has(unidadSeleccionada.unitId)) {
-      return;
-    }
-
-    if (!this.esUnidadDron(unidadSeleccionada)) {
-      return;
-    }
-
-    const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
-    this.objetivoMisilPunto = { x: objetivoMundo.x, y: objetivoMundo.y };
-    this.ultimoObjetivoMisilPunto = { x: objetivoMundo.x, y: objetivoMundo.y };
-    this.apuntandoMisil = false;
-    this.actualizarMarcadorObjetivoMisil();
-    this.actualizarEstadoBotonApuntar();
-    this.actualizarEstadoBotonMisil();
   }
 
   private launchBombFromSelectedUnit(): void {
@@ -1286,6 +1371,12 @@ export class GameScene extends Phaser.Scene {
     if (selectedUnit.type !== UnitType.AERIAL_DRONE) {
       this.showError('Solo un dron rojo (AERIAL_DRONE) puede lanzar bomba');
       return;
+    }
+
+    const pointer = this.input.activePointer;
+    if (pointer && pointer.y < this.scale.height * 0.8) {
+      const objetivo = this.pantallaAMundo(pointer.x, pointer.y);
+      this.girarUnidadHaciaPunto(selectedUnit.unitId, objetivo.x, objetivo.y);
     }
 
     this.websocketClient?.requestBombAttack(selectedUnit.unitId);
@@ -1322,20 +1413,23 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const objetivo = this.objetivoMisilPunto ?? this.ultimoObjetivoMisilPunto;
-    if (!objetivo) {
-      this.showError('Primero apunta en el mapa');
+    const pointer = this.input.activePointer;
+    if (!pointer) {
+      this.showError('No se pudo leer la posicion del cursor');
       return;
     }
 
+    if (pointer.y >= this.scale.height * 0.8) {
+      this.showError('Coloca el cursor sobre el mapa para disparar');
+      return;
+    }
+
+    const objetivo = this.pantallaAMundo(pointer.x, pointer.y);
     const objetivoX = objetivo.x;
     const objetivoY = objetivo.y;
 
+    this.girarUnidadHaciaPunto(unidadSeleccionada.unitId, objetivoX, objetivoY);
     this.websocketClient.solicitarDisparoMisil(unidadSeleccionada.unitId, objetivoX, objetivoY);
-    this.ultimoObjetivoMisilPunto = { x: objetivoX, y: objetivoY };
-    this.objetivoMisilPunto = null;
-    this.actualizarMarcadorObjetivoMisil();
-    this.actualizarEstadoBotonApuntar();
   }
 
   private actualizarEstadoBotonMisil(): void {
@@ -1365,66 +1459,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-
-  private actualizarEstadoBotonApuntar(): void {
-    if (!this.botonApuntarContenedor || !this.textoBotonApuntar || !this.fondoBotonApuntar) {
-      return;
-    }
-
-    if (this.esJugadorUno()) {
-      this.botonApuntarContenedor.setAlpha(0.6);
-      this.textoBotonApuntar.setColor('#7a7a7a');
-      this.fondoBotonApuntar.setFillStyle(0x2a2f35, 1);
-      this.fondoBotonApuntar.setStrokeStyle(2, 0x4c4c4c, 0.8);
-      return;
-    }
-
-    if (this.apuntandoMisil) {
-      this.botonApuntarContenedor.setAlpha(1);
-      this.textoBotonApuntar.setColor('#ffffff');
-      this.fondoBotonApuntar.setFillStyle(0xffa726, 0.9);
-      this.fondoBotonApuntar.setStrokeStyle(2, 0xffcc80, 0.9);
-      return;
-    }
-
-    if (this.objetivoMisilPunto || this.ultimoObjetivoMisilPunto) {
-      this.botonApuntarContenedor.setAlpha(1);
-      this.textoBotonApuntar.setColor('#ffffff');
-      this.fondoBotonApuntar.setFillStyle(0x2f7a2f, 0.9);
-      this.fondoBotonApuntar.setStrokeStyle(2, 0x7dff7d, 0.9);
-      return;
-    }
-
-    this.botonApuntarContenedor.setAlpha(0.8);
-    this.textoBotonApuntar.setColor('#ffffff');
-    this.fondoBotonApuntar.setFillStyle(0x1b3a4b, 0.9);
-    this.fondoBotonApuntar.setStrokeStyle(2, 0x6cb6ff, 0.8);
-  }
-
-  private actualizarMarcadorObjetivoMisil(): void {
-    const punto = this.objetivoMisilPunto ?? this.ultimoObjetivoMisilPunto;
-    if (!punto) {
-      if (this.marcadorObjetivoMisil) {
-        this.marcadorObjetivoMisil.setVisible(false);
-      }
-      return;
-    }
-
-    const lado = 14;
-
-    if (!this.marcadorObjetivoMisil) {
-      const marcador = this.add.rectangle(punto.x, punto.y, lado, lado, 0xffcc80, 0.25);
-      marcador.setStrokeStyle(2, 0xffa726, 0.9);
-      marcador.setDepth(6);
-      this.marcadorObjetivoMisil = marcador;
-      this.marcadorObjetivoMisil.setVisible(true);
-      return;
-    }
-
-    this.marcadorObjetivoMisil.setPosition(punto.x, punto.y);
-    this.marcadorObjetivoMisil.setVisible(true);
-  }
-
   private puedeDispararMisil(): boolean {
     if (!this.selectionManager) {
       return false;
@@ -1448,7 +1482,7 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    return this.objetivoMisilPunto !== null || this.ultimoObjetivoMisilPunto !== null;
+    return true;
   }
 
   private handleBombLaunched(datosBomba: IBombLaunched): void {
@@ -1683,7 +1717,13 @@ export class GameScene extends Phaser.Scene {
     this.actualizarArmamentoUI();
   }
 
-  private solicitarMovimiento(unidadId: string, objetivoX: number, objetivoY: number, objetivoZ: number): void {
+  private solicitarMovimiento(
+    unidadId: string,
+    objetivoX: number,
+    objetivoY: number,
+    objetivoZ: number,
+    intervaloMinimoMs: number = GameScene.MOVE_REPEAT_MS
+  ): void {
     // Punto unico de envio: limita la frecuencia y los rangos antes de enviar al servidor
     if (!this.websocketClient) {
       return;
@@ -1698,7 +1738,7 @@ export class GameScene extends Phaser.Scene {
       this.lastMoveRequestAt = 0;
     }
 
-    if (ahoraMs - this.lastMoveRequestAt < GameScene.MOVE_REPEAT_MS) {
+    if (ahoraMs - this.lastMoveRequestAt < intervaloMinimoMs) {
       return;
     }
 
@@ -1708,6 +1748,7 @@ export class GameScene extends Phaser.Scene {
     const yLimitado = Phaser.Math.Clamp(objetivoY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y);
     const zLimitado = Phaser.Math.Clamp(objetivoZ, GameScene.MAP_MIN_Z, maximoZ);
 
+    this.girarUnidadHaciaPunto(unidadId, xLimitado, yLimitado);
     this.websocketClient.solicitarMovimientoUnidad(unidadId, xLimitado, yLimitado, zLimitado);
     this.lastMoveRequestAt = ahoraMs;
   }
@@ -1856,6 +1897,21 @@ export class GameScene extends Phaser.Scene {
     return drones;
   }
 
+  private obtenerUnidadesConVisionJugador(): IUnit[] {
+    const unidadesConVision: IUnit[] = [];
+    for (const unidad of this.knownUnits.values()) {
+      if (!this.playerUnitIds.has(unidad.unitId)) {
+        continue;
+      }
+
+      if (this.esUnidadDron(unidad) || this.esPortadrones(unidad)) {
+        unidadesConVision.push(unidad);
+      }
+    }
+
+    return unidadesConVision;
+  }
+
   private esUnidadDron(unit: IUnit): boolean {
     return unit.type === 'AERIAL_DRONE' || unit.type === 'NAVAL_DRONE';
   }
@@ -1873,7 +1929,6 @@ export class GameScene extends Phaser.Scene {
     this.unitSprites.forEach(s => s.sprite.disableInteractive());
     this.botonRecargaContenedor?.disableInteractive();
     this.botonMisilContenedor?.disableInteractive();
-    this.botonApuntarContenedor?.disableInteractive();
 
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
@@ -1925,12 +1980,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private esVisibleParaDronesPropios(unidadEnemiga: IUnit): boolean {
-    const dronesPropios = this.obtenerDronesJugador();
+    const unidadesConVisionPropias = this.obtenerUnidadesConVisionJugador();
 
-    for (const dron of dronesPropios) {
-      const dx = dron.x - unidadEnemiga.x;
-      const dy = dron.y - unidadEnemiga.y;
-      const rango = this.obtenerRangoVisionDron(dron);
+    for (const unidadConVision of unidadesConVisionPropias) {
+      const dx = unidadConVision.x - unidadEnemiga.x;
+      const dy = unidadConVision.y - unidadEnemiga.y;
+      const rango = this.obtenerRangoVisionUnidad(unidadConVision);
       const distancia2 = dx * dx + dy * dy;
 
       if (distancia2 <= rango * rango) {
