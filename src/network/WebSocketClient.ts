@@ -12,8 +12,20 @@ export class WebSocketClient {
 
   constructor(url: string = 'ws://localhost:8081/game') {
     this.url = url;
-  }
+ }
+  /*
+  constructor(url?: string) {
+    if (url) {
+      this.url = url;
+      return;
+    }
 
+    const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+    const wsHost = import.meta.env.VITE_WS_HOST || window.location.hostname;
+    const wsPort = import.meta.env.VITE_WS_PORT || "8081";
+    this.url = `${wsProtocol}://${wsHost}:${wsPort}/game`;
+  }
+//*/
   // Conecta con el servidor y define eventos de conexion
   public async connect(): Promise<void> {
     return new Promise((resolve, reject) => {

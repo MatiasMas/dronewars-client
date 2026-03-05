@@ -19,6 +19,10 @@ type UnitVisual = {
   label: Phaser.GameObjects.Text;
 };
 
+type GameSceneInitData = {
+  preferredPlayerId?: string;
+};
+
 export class GameScene extends Phaser.Scene {
   private websocketClient: WebSocketClient | null = null;
   private selectionManager: SelectionManager | null = null;
@@ -101,7 +105,7 @@ export class GameScene extends Phaser.Scene {
   }
 
 
-  async create() {
+  async create(data: GameSceneInitData = {}) {
     console.log("[GameScene] Creating scene...");
     AnimationManager.createAnimations(this);
 
@@ -149,23 +153,27 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.selectionManager = new SelectionManager();
+    this.setupEventListeners();
 
     // Registrando jugador en el servidor y esperando confirmacion
     await this.waitForAvailablePlayers();
 
     // Seleccionando el primer jugador disponible y registrandolo en el servidor
-    const selectedPlayerId = this.selectFirstAvailablePlayer();
+    const preferredFromRegistry = this.registry.get("preferredPlayerId");
+    const preferredPlayerId = (data.preferredPlayerId ?? preferredFromRegistry) as string | undefined;
+    const selectedPlayerId = this.selectPreferredOrFirstAvailablePlayer(preferredPlayerId);
+
     if (!selectedPlayerId) {
       this.showError('No players available');
       return;
     }
+
 
     this.websocketClient.registerPlayer(selectedPlayerId);
     await this.waitForPlayerRegistration();
 
     this.websocketClient.requestPlayerUnits();
 
-    this.setupEventListeners();
     this.drawUI();
     this.createBombAttackButton();
     this.crearBotonMisil();
@@ -208,11 +216,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private selectFirstAvailablePlayer(): string | null {
+  private selectPreferredOrFirstAvailablePlayer(preferredPlayerId?: string): string | null {
+    if (preferredPlayerId) {
+      const preferred = this.availablePlayers.find(
+          p => p.playerId === preferredPlayerId && p.available
+      );
+      if (preferred) {
+        console.log(`[GameScene] Using preferred player: ${preferred.playerName} (${preferred.playerId})`);
+        return preferred.playerId;
+      }
+    }
+
     const availablePlayer = this.availablePlayers.find(player => player.available);
 
     if (availablePlayer) {
-      console.log(`[GameScene] Selecting player: ${availablePlayer.playerName}]`);
+      console.log(`[GameScene] Selecting first available player: ${availablePlayer.playerName}`);
       return availablePlayer.playerId;
     }
 
