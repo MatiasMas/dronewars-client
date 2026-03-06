@@ -41,7 +41,7 @@ export enum ServerToClientEvents {
   GAME_ENDED = 'GAME_ENDED',
 
   // En el futuro, los eventos de sincronizacion deberian ir aqui
-  GAME_PAUSE_UPDATE = 'GAME_PAUSE_UPDATE',
+  GAME_PAUSE_UPDATED = 'GAME_PAUSE_UPDATED',
   SAVE_GAME_RESULT = 'SAVE_GAME_RESULT',
 }
 

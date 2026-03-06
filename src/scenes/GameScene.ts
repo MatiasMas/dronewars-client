@@ -58,6 +58,7 @@ export class GameScene extends Phaser.Scene {
   private fondoBotonMisil: Phaser.GameObjects.Rectangle | null = null;
   private partidaFinalizada: boolean = false;
   private panelResultado: Phaser.GameObjects.Container | null = null;
+  private avisoPausaContenedor: Phaser.GameObjects.Container | null = null;
   /** Centrar cámara en este punto en el próximo frame (al recibir unidades). */
   private pendingCameraCenter: { x: number; y: number } | null = null;
 
@@ -68,6 +69,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly MAP_MAX_Y = 2500;
   private static readonly MAP_MIN_Z = 0;
   private static readonly MAP_MAX_Z = 10;
+  private static readonly MAP_MAX_Z_MISILES = 8;
   private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.005;
 
 
@@ -92,6 +94,19 @@ export class GameScene extends Phaser.Scene {
   private static readonly ALFA_ZONA_NO_VISIBLE = 0.35;
   private capaNiebla: Phaser.GameObjects.Graphics | null = null;
   private mascaraVision: Phaser.GameObjects.Graphics | null = null;
+
+  //Pausa
+  private partidaPausada: boolean = false;
+  private menuPausaVisible: boolean = false;
+  private menuPausaContenedor: Phaser.GameObjects.Container | null = null;
+  private textoBotonPausarMenu: Phaser.GameObjects.Text | null = null;
+  private botonesMenuPausa: Array<{
+    x: number;
+    y: number;
+    ancho: number;
+    alto: number;
+    accion: () => void;
+  }> = [];
 
   constructor() {
     super('GameScene');
@@ -169,6 +184,7 @@ export class GameScene extends Phaser.Scene {
 
     this.setupEventListeners();
     this.drawUI();
+    this.crearMenuPausa();
     this.updateSelectedUnitCoordsText();
     this.teclaW = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.W) ?? null;
     this.teclaA = this.input.keyboard?.addKey(Phaser.Input.Keyboard.KeyCodes.A) ?? null;
@@ -202,6 +218,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.input.keyboard.on("keydown-SPACE", (evento: KeyboardEvent) => {
+      if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
+        return;
+      }
+
       if (evento.repeat) {
         return; // evita disparos multiples por dejar apretada la tecla
       }
@@ -228,11 +248,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.input.keyboard.on("keydown-ESC", (evento: KeyboardEvent) => {
-      if (evento.repeat) {
-        return;
-      }
+      if (evento.repeat) return;
 
-      this.selectionManager?.deselectUnit();
+      this.alternarMenuPausa();
     });
   }
 
@@ -300,6 +318,7 @@ export class GameScene extends Phaser.Scene {
         const first = playerUnits[0];
         console.log(`[GameScene] First unit: id=${first.unitId}, type=${first.type}, x=${first.x}, y=${first.y}`);
       }
+
       this.knownUnits.clear();
       playerUnits.forEach(unit => this.knownUnits.set(unit.unitId, unit));
       enemyUnits.forEach(unit => this.knownUnits.set(unit.unitId, unit));
@@ -309,6 +328,25 @@ export class GameScene extends Phaser.Scene {
       this.centrarCamaraEnPortadrones(playerUnits);
       this.sincronizarMunicionInicial([...playerUnits, ...enemyUnits]);
       this.actualizarArmamentoUI();
+    });
+
+    this.websocketClient.on(ServerToClientEvents.GAME_PAUSE_UPDATED, (payload: any) => {
+      const paused = payload?.paused;
+      const pausada = payload?.pausada;
+      this.partidaPausada = paused === true || pausada === true;
+      this.actualizarTextoBotonPausaMenu();
+      this.actualizarAvisoPausa();
+      this.actualizarEstadoBotonRecarga();
+      this.actualizarEstadoBotonMisil();
+    });
+
+    this.websocketClient.on(ServerToClientEvents.SAVE_GAME_RESULT, (payload: any) => {
+      const ok = payload?.ok === true;
+      const message = typeof payload?.message === 'string'
+        ? payload.message
+        : (ok ? 'Partida guardada' : 'No se pudo guardar la partida');
+
+      this.showError(message);
     });
 
     this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
@@ -392,6 +430,8 @@ export class GameScene extends Phaser.Scene {
         console.log(`[GameScene] Camera centerOn(${x}, ${y}), scroll=(${cam.scrollX}, ${cam.scrollY})`);
       }
     }
+
+    if (this.partidaPausada || this.menuPausaVisible) { return; }
 
     if (
       !this.websocketClient ||
@@ -537,6 +577,10 @@ export class GameScene extends Phaser.Scene {
       this.unitFuelLabels.set(unit.unitId, fuelTextFallback);
 
       fallbackBody.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
+          return;
+        }
+
         if (!pointer.leftButtonDown()) {
           return;
         }
@@ -588,6 +632,10 @@ export class GameScene extends Phaser.Scene {
     this.unitFuelLabels.set(unit.unitId, fuelText);
 
     sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+      if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
+        return;
+      }
+
       if (!pointer.leftButtonDown()) {
         return;
       }
@@ -1011,7 +1059,36 @@ export class GameScene extends Phaser.Scene {
       'Connected to the server',
       {fontSize: '12px', color: '#00ff00'}
     ).setScrollFactor(0).setDepth(100);
+
+    this.crearAvisoPausa();
     this.crearPanelEstadisticasDron();
+  }
+
+  private crearAvisoPausa(): void {
+    const centroX = this.cameras.main.centerX;
+    const y = 100;
+
+    const fondo = this.add.rectangle(0, 0, 260, 34, 0x000000, 0.7);
+    fondo.setStrokeStyle(2, 0xffaa00, 0.9);
+
+    const texto = this.add.text(0, 0, 'PARTIDA PAUSADA', {
+      fontSize: '18px',
+      color: '#ffdd57',
+      fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    this.avisoPausaContenedor = this.add.container(centroX, y, [fondo, texto]);
+    this.avisoPausaContenedor.setScrollFactor(0);
+    this.avisoPausaContenedor.setDepth(121);
+    this.avisoPausaContenedor.setVisible(false);
+  }
+
+  private actualizarAvisoPausa(): void {
+    if (!this.avisoPausaContenedor) {
+      return;
+    }
+
+    this.avisoPausaContenedor.setVisible(this.partidaPausada);
   }
 
   private crearPanelEstadisticasDron(): void {
@@ -1300,6 +1377,17 @@ export class GameScene extends Phaser.Scene {
     // Click derecho en mapa: deselecciona
     // Click izquierdo en mapa: mueve a la unidad seleccionada
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
+      if (this.menuPausaVisible) {
+        if (pointer.leftButtonDown()) {
+          this.manejarClickMenuPausa(pointer.x, pointer.y);
+        }
+        return;
+      }
+
+      if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
+        return;
+      }
+
       if (pointer.y >= this.scale.height * 0.8) {
         return;
       }
@@ -1325,6 +1413,10 @@ export class GameScene extends Phaser.Scene {
 
     // Rueda para altura: wheel ajusta Z en pasos fijos
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
+      if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
+        return;
+      }
+
       if (_pointer.y >= this.scale.height * 0.8) {
         return;
       }
@@ -1355,7 +1447,23 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  private manejarClickMenuPausa(x: number, y: number): void {
+    for (const boton of this.botonesMenuPausa) {
+      const dentroX = x >= (boton.x - boton.ancho / 2) && x <= (boton.x + boton.ancho / 2);
+      const dentroY = y >= (boton.y - boton.alto / 2) && y <= (boton.y + boton.alto / 2);
+
+      if (dentroX && dentroY) {
+        boton.accion();
+        return;
+      }
+    }
+  }
+
   private launchBombFromSelectedUnit(): void {
+    if (this.partidaPausada || this.menuPausaVisible) {
+      return;
+    }
+
     if (!this.esJugadorUno()) {
       this.showError('Solo el Jugador 1 puede lanzar bombas');
       return;
@@ -1383,6 +1491,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private lanzarMisilDesdeSeleccion(): void {
+    if (this.partidaPausada || this.menuPausaVisible) {
+      return;
+    }
+
     if (this.esJugadorUno()) {
       this.showError('Solo el Jugador 2 puede lanzar misiles');
       return;
@@ -1724,6 +1836,10 @@ export class GameScene extends Phaser.Scene {
     objetivoZ: number,
     intervaloMinimoMs: number = GameScene.MOVE_REPEAT_MS
   ): void {
+    if (this.partidaPausada || this.menuPausaVisible) {
+      return;
+    }
+
     // Punto unico de envio: limita la frecuencia y los rangos antes de enviar al servidor
     if (!this.websocketClient) {
       return;
@@ -1766,6 +1882,9 @@ export class GameScene extends Phaser.Scene {
     const playerId = this.websocketClient?.getPlayerId();
     if (playerId === 'player_1') {
       return GameScene.MAP_MAX_Z * GameScene.MAP_MAX_Z_BONUS_FACTOR;
+    }
+    if (playerId === 'player_2') {
+      return GameScene.MAP_MAX_Z_MISILES;
     }
 
     return GameScene.MAP_MAX_Z;
@@ -1818,6 +1937,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private manejarAccionRecarga(): void {
+    if (this.partidaPausada || this.menuPausaVisible) {
+      return;
+    }
+
     if (!this.websocketClient || !this.selectionManager) {
       return;
     }
@@ -1918,6 +2041,126 @@ export class GameScene extends Phaser.Scene {
 
   private esPortadrones(unit: IUnit): boolean {
     return unit.type === 'AERIAL_CARRIER' || unit.type === 'NAVAL_CARRIER';
+  }
+
+  private crearMenuPausa(): void {
+    if (this.menuPausaContenedor) {
+      return;
+    }
+
+    const anchoPantalla = this.cameras.main.width;
+    const altoPantalla = this.cameras.main.height;
+    const centroX = anchoPantalla / 2;
+    const centroY = altoPantalla / 2;
+
+    const overlay = this.add.rectangle(centroX, centroY, anchoPantalla, altoPantalla, 0x000000, 0.45);
+
+    const panel = this.add.rectangle(centroX, centroY, 380, 330, 0x111827, 0.96);
+    panel.setStrokeStyle(2, 0x4b5563, 0.95);
+    panel.setInteractive();
+
+    const titulo = this.add.text(centroX, centroY - 125, 'Menu de pausa', {
+      fontSize: '24px',
+      color: '#f9fafb',
+      fontStyle: 'bold'
+    }).setOrigin(0.5);
+
+    this.botonesMenuPausa = [];
+
+    const crearBoton = (
+      y: number,
+      texto: string,
+      onClick: () => void
+    ): { contenedor: Phaser.GameObjects.Container; texto: Phaser.GameObjects.Text } => {
+      const ancho = 280;
+      const alto = 44;
+
+      const fondo = this.add.rectangle(0, 0, ancho, alto, 0x1f2937, 1);
+      fondo.setStrokeStyle(2, 0x475569, 0.95);
+      fondo.setInteractive({ useHandCursor: true });
+
+      const etiqueta = this.add.text(0, 0, texto, {
+        fontSize: '16px',
+        color: '#e5e7eb',
+        fontStyle: 'bold'
+      }).setOrigin(0.5);
+
+      const contenedor = this.add.container(centroX, y, [fondo, etiqueta]);
+
+      fondo.on('pointerover', () => {
+        fondo.setFillStyle(0x334155, 1);
+      });
+      fondo.on('pointerout', () => {
+        fondo.setFillStyle(0x1f2937, 1);
+      });
+      fondo.on('pointerdown', () => onClick());
+
+      this.botonesMenuPausa.push({
+        x: centroX,
+        y,
+        ancho,
+        alto,
+        accion: onClick
+      });
+
+      return { contenedor, texto: etiqueta };
+    };
+
+    const botonPausa = crearBoton(centroY - 55, 'Pausar partida', () => {
+      this.websocketClient?.solicitarPausaPartida(!this.partidaPausada);
+    });
+
+    const botonGuardar = crearBoton(centroY - 5, 'Guardar partida', () => {
+      this.websocketClient?.solicitarGuardarPartida();
+    });
+
+    const botonConfig = crearBoton(centroY + 45, 'Configuracion', () => {
+      this.showError('Configuracion pendiente');
+    });
+
+    const botonSalir = crearBoton(centroY + 95, 'Salir al menu', () => {
+      const confirmar = window.confirm('Seguro que queres salir al menu principal?');
+      if (!confirmar) {
+        return;
+      }
+
+      this.websocketClient?.disconnect();
+      window.location.reload();
+    });
+
+    this.menuPausaContenedor = this.add.container(0, 0, [
+      overlay,
+      panel,
+      titulo,
+      botonPausa.contenedor,
+      botonGuardar.contenedor,
+      botonConfig.contenedor,
+      botonSalir.contenedor
+    ]);
+    this.menuPausaContenedor.setScrollFactor(0);
+    this.menuPausaContenedor.setDepth(120);
+    this.menuPausaContenedor.setVisible(false);
+
+    this.menuPausaVisible = false;
+    this.textoBotonPausarMenu = botonPausa.texto;
+    this.actualizarTextoBotonPausaMenu();
+  }
+
+  private alternarMenuPausa(): void {
+    if (!this.menuPausaContenedor) {
+      return;
+    }
+
+    this.menuPausaVisible = !this.menuPausaVisible;
+    this.menuPausaContenedor.setVisible(this.menuPausaVisible);
+  }
+
+  private actualizarTextoBotonPausaMenu(): void {
+    if (!this.textoBotonPausarMenu) {
+      return;
+    }
+
+    this.textoBotonPausarMenu.setText(this.partidaPausada ? 'Reanudar partida' : 'Pausar partida');
   }
 
   private mostrarResultadoFinal(payload: IGameEnded): void {

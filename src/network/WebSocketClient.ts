@@ -182,6 +182,22 @@ export class WebSocketClient {
   }
 
   /*
+  * Solicita pausa al servidor
+  */
+  public solicitarPausaPartida(pausada: boolean): void {
+    this.send({
+      type: ClientToServerEvents.SET_GAME_PAUSED,
+      paused: pausada,
+    });
+  }
+
+  public solicitarGuardarPartida(): void {
+    this.send({
+      type: ClientToServerEvents.REQUEST_SAVE_GAME,
+    });
+  }
+
+  /*
   * Maneja los mensajes recibidos del servidor
   * Parsea el mensaje y emite el evento a los clientes
   */
@@ -259,6 +275,16 @@ export class WebSocketClient {
 
       if (data.type === ServerToClientEvents.GAME_ENDED) {
         this.emit(ServerToClientEvents.GAME_ENDED, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.GAME_PAUSE_UPDATED) {
+        this.emit(ServerToClientEvents.GAME_PAUSE_UPDATED, data.payload);
+        return;
+      }
+
+      if (data.type === ServerToClientEvents.SAVE_GAME_RESULT) {
+        this.emit(ServerToClientEvents.SAVE_GAME_RESULT, data.payload);
         return;
       }
 
