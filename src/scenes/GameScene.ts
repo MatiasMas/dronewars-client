@@ -62,6 +62,10 @@ export class GameScene extends Phaser.Scene {
   private fondoBotonMisil: Phaser.GameObjects.Rectangle | null = null;
   private partidaFinalizada: boolean = false;
   private panelResultado: Phaser.GameObjects.Container | null = null;
+  private timerPortadronesTexto: Phaser.GameObjects.Text | null = null;
+  private timerPortadronesDeadlineMs: number | null = null;
+  private timerPortadronesActivo: boolean = false;
+  private timerPortadronesObjetivoTexto: string = '';
   /** Centrar cámara en este punto en el próximo frame (al recibir unidades). */
   private pendingCameraCenter: { x: number; y: number } | null = null;
 
@@ -87,6 +91,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly RANGO_DISPARO_MISIL = 30;
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
+  private static readonly CUENTA_REGRESIVA_PORTADRONES_MS = 2 * 60 * 1000;
 
   //Visibilidad
   private static readonly RANGO_VISION_BOMBAS = 400;
@@ -410,6 +415,8 @@ export class GameScene extends Phaser.Scene {
         console.log(`[GameScene] Camera centerOn(${x}, ${y}), scroll=(${cam.scrollX}, ${cam.scrollY})`);
       }
     }
+
+    this.actualizarTimerPortadrones();
 
     if (
       !this.websocketClient ||
@@ -1029,6 +1036,14 @@ export class GameScene extends Phaser.Scene {
       'Connected to the server',
       {fontSize: '12px', color: '#00ff00'}
     ).setScrollFactor(0).setDepth(100);
+
+    this.timerPortadronesTexto = this.add.text(
+      this.cameras.main.centerX,
+      58,
+      '',
+      { fontSize: '18px', color: '#ffd166', fontStyle: 'bold', align: 'center' }
+    ).setOrigin(0.5).setScrollFactor(0).setDepth(102).setVisible(false);
+
     this.crearPanelEstadisticasDron();
   }
 
@@ -1671,6 +1686,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private eliminarUnidadDelMapa(unidadId: string, tipoAtaque: 'bomba' | 'misil'): void {
+    const unidadDestruida = this.knownUnits.get(unidadId);
+    const esPortadronesDestruido = !!unidadDestruida && this.esPortadrones(unidadDestruida);
+    const esPortadronesPropio = esPortadronesDestruido && this.playerUnitIds.has(unidadId);
+
     const sprite = this.unitSprites.get(unidadId);
 
     if (sprite) {
@@ -1733,6 +1752,10 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.actualizarArmamentoUI();
+
+    if (esPortadronesDestruido) {
+      this.iniciarTimerPortadrones(esPortadronesPropio);
+    }
   }
 
   private solicitarMovimiento(
@@ -1941,6 +1964,9 @@ export class GameScene extends Phaser.Scene {
   private mostrarResultadoFinal(payload: IGameEnded): void {
     if (this.partidaFinalizada) return;
     this.partidaFinalizada = true;
+    this.timerPortadronesActivo = false;
+    this.timerPortadronesDeadlineMs = null;
+    this.timerPortadronesTexto?.setVisible(false);
 
     // Bloquea selección/interacciones
     this.selectionManager?.deselectUnit();
@@ -1958,9 +1984,8 @@ export class GameScene extends Phaser.Scene {
       fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(101);
     const ganadorTexto = payload.draw
-        ? 'No hubo ganador'
-        : `Ganador: ${payload.winnerTeamId === 'player_1' ? 'Equipo 1' : 'Equipo 2'}`;
-
+      ? 'No hubo ganador'
+      : `Ganador: ${payload.winnerTeamId === 'player_1' ? 'Equipo 1' : 'Equipo 2'}`;
     const razonTexto = this.textoRazonFin(payload.reason);
 
     const detalle = this.add.text(w / 2, h / 2 + 5, `${ganadorTexto}\n${razonTexto}`, {
@@ -1973,13 +1998,48 @@ export class GameScene extends Phaser.Scene {
   }
 
   private textoRazonFin(reason: IGameEnded['reason']): string {
-    if (reason === 'ALL_UNITS_DESTROYED') {
-      return 'Todas las unidades de un equipo fueron destruidas.';
+
+    const razones: Record<string, string> = {
+      ALL_UNITS_DESTROYED: 'Todas las unidades de un equipo fueron destruidas.',
+      CARRIER_DESTROYED_AND_NO_RESOURCES: 'Portadrones destruido y unidades restantes sin combustible o munición.',
+      CARRIER_DESTROYED_TIMEOUT_DRAW: 'Portadrones destruido.'
+    };
+    if (!reason) return 'Fin de partida';
+    return razones[reason] ?? `Fin de partida(${reason})`;
+  }
+
+  private iniciarTimerPortadrones(portadronesPropioDestruido: boolean): void {
+    if (this.timerPortadronesActivo || this.partidaFinalizada) {
+      return;
     }
-    if (reason === 'CARRIER_DESTROYED_AND_NO_RESOURCES') {
-      return 'Portadrones destruido y unidades restantes sin combustible o munición.';
+
+    this.timerPortadronesActivo = true;
+    this.timerPortadronesDeadlineMs = Date.now() + GameScene.CUENTA_REGRESIVA_PORTADRONES_MS;
+    this.timerPortadronesObjetivoTexto = portadronesPropioDestruido
+      ? 'Tu portadrones fue destruido. Tienes'
+      : 'Portadrones enemigo destruido. El rival tiene';
+    this.timerPortadronesTexto?.setVisible(true);
+    this.actualizarTimerPortadrones();
+  }
+
+  private actualizarTimerPortadrones(): void {
+    if (!this.timerPortadronesActivo || !this.timerPortadronesTexto || !this.timerPortadronesDeadlineMs) {
+      return;
     }
-    return 'Portadrones destruido y no se destruyó el rival en 2 minutos.';
+
+    const restanteMs = Math.max(0, this.timerPortadronesDeadlineMs - Date.now());
+    const restanteSegundos = Math.ceil(restanteMs / 1000);
+    const minutos = Math.floor(restanteSegundos / 60);
+    const segundos = restanteSegundos % 60;
+    const reloj = `${String(minutos).padStart(2, '0')}:${String(segundos).padStart(2, '0')}`;
+
+    this.timerPortadronesTexto.setText(
+      `${this.timerPortadronesObjetivoTexto} ${reloj} para destruir el portadrones contrario.`
+    );
+
+    if (restanteMs <= 0) {
+      this.timerPortadronesActivo = false;
+    }
   }
 
   private emitirActualizacionDeAltura(): void {
