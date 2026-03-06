@@ -10,9 +10,9 @@ export class WebSocketClient {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnected: boolean = false;
 
-  constructor(url: string = 'ws://192.168.1.17:8081/game') {
+  constructor(url: string = 'ws://localhost:8081/game') {
     this.url = url;
-  }
+ }
 
   // Conecta con el servidor y define eventos de conexion
   public async connect(): Promise<void> {
@@ -268,14 +268,19 @@ export class WebSocketClient {
         return;
       }
 
-      // Si no coincide con nada, envia el tipo recibido a los escuchas
+      if (data.type === ServerToClientEvents.GAME_ENDED) {
+        this.emit(ServerToClientEvents.GAME_ENDED, data.payload);
+        return;
+      }
+
+      // Si no coincide con nada específico, envia el tipo recibido a los escuchas.
       if (data.type) {
         this.emit(data.type, data);
       }
 
-      if (data.type === ServerToClientEvents.GAME_ENDED) {
-        this.emit(ServerToClientEvents.GAME_ENDED, data.payload);
-        return;
+// Si no coincide con nada específico, emite el objeto completo
+      if (data.type) {
+        this.emit(data.type, data);
       }
 
       if (data.type === ServerToClientEvents.GAME_PAUSE_UPDATED) {
