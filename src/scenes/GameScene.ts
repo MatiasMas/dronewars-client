@@ -1092,6 +1092,8 @@ export class GameScene extends Phaser.Scene {
       { fontSize: '18px', color: '#ffd166', fontStyle: 'bold', align: 'center' }
     ).setOrigin(0.5).setScrollFactor(0).setDepth(102).setVisible(false);
 
+    this.crearAvisoPausa();
+    this.actualizarAvisoPausa();
     this.crearPanelEstadisticasDron();
   }
 
