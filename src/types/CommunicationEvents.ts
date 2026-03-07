@@ -13,11 +13,15 @@ export enum ClientToServerEvents {
   // MOVE_UNIT: movimiento validado por servidor
   MOVE_UNIT = 'MOVE_UNIT',
   // RELOAD_AMMO: recarga de municion validada por servidor
+
+  // En el futuro, los eventos de movimiento o ataques deberian ir aqui
   RELOAD_AMMO = 'RELOAD_AMMO',
   LAUNCH_BOMB = 'LAUNCH_BOMB',
   LAUNCH_MISSILE = 'LAUNCH_MISSILE',
 
-  // En el futuro, los eventos de movimiento o ataques deberian ir aqui
+  //MENU DE PAUSA
+  SET_GAME_PAUSED = 'SET_GAME_PAUSED',
+  REQUEST_SAVE_GAME = 'REQUEST_SAVE_GAME',
 }
 
 export enum ServerToClientEvents {
@@ -34,9 +38,11 @@ export enum ServerToClientEvents {
   MISIL_IMPACTADO = 'MISIL_IMPACTADO',
   MISIL_ACTUALIZADO = "MISIL_ACTUALIZADO",
   MUNICION_RECARGADA = 'MUNICION_RECARGADA',
-  GAME_ENDED = 'GAME_ENDED'
+  GAME_ENDED = 'GAME_ENDED',
 
   // En el futuro, los eventos de sincronizacion deberian ir aqui
+  GAME_PAUSE_UPDATED = 'GAME_PAUSE_UPDATED',
+  SAVE_GAME_RESULT = 'SAVE_GAME_RESULT',
 }
 
 /*
