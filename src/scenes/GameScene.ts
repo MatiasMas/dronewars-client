@@ -1817,15 +1817,20 @@ export class GameScene extends Phaser.Scene {
     const esPortadronesPropio = esPortadronesDestruido && this.playerUnitIds.has(unidadId);
 
     const esUnidadPropia = this.playerUnitIds.has(unidadId);
+    const playerId = this.websocketClient?.getPlayerId();
 
     if (!esUnidadPropia) {
 
       if (esPortadronesDestruido) {
         this.playerScore += GameScene.SCORE_CARRIER;
       } else {
-        this.playerScore += GameScene.SCORE_DRONE;
-      }
+        if (playerId === 'player_2') {
+          this.playerScore += GameScene.SCORE_DRONE/2;
+        } else {
+          this.playerScore += GameScene.SCORE_DRONE;
+        }
 
+      }
     }
 
     const sprite = this.unitSprites.get(unidadId);
