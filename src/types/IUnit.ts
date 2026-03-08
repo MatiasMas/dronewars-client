@@ -1,6 +1,6 @@
 /*
- * This interface represents a unit.
- * Maps to UnitSelectionDTO on the server
+ * Esta interfaz representa una unidad.
+ * Mapea a UnitSelectionDTO en el servidor
  */
 import {UnitType} from "./UnitType";
 
@@ -10,6 +10,7 @@ export interface IUnit {
   x: number,
   y: number,
   z: number,
-  health: number
+  health: number,
+  combustible?: number
 }
 

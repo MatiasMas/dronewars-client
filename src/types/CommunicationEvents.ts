@@ -1,17 +1,27 @@
 /*
- * CommunicationEvents defines all events that are transmitted between the client and server,
- * clients send an event; server processes the event with the name used here.
+ * CommunicationEvents define todos los eventos transmitidos entre cliente y servidor.
+ * Los clientes envian un evento; el servidor lo procesa con el nombre usado aqui.
  *
- * ServerToClient: When the server sends an event to the client
- * ClientToServer: When the client sends an event to the server
+ * ServerToClient: cuando el servidor envia un evento al cliente
+ * ClientToServer: cuando el cliente envia un evento al servidor
  */
 
 export enum ClientToServerEvents {
   REGISTER_PLAYER = 'REGISTER_PLAYER',
   GET_PLAYER_UNITS = 'GET_PLAYER_UNITS',
-  SELECT_UNIT = 'SELECT_UNIT'
+  SELECT_UNIT = 'SELECT_UNIT',
+  // MOVE_UNIT: movimiento validado por servidor
+  MOVE_UNIT = 'MOVE_UNIT',
+  // RELOAD_AMMO: recarga de municion validada por servidor
 
-  // In the future, movement or attacks events should be here
+  // En el futuro, los eventos de movimiento o ataques deberian ir aqui
+  RELOAD_AMMO = 'RELOAD_AMMO',
+  LAUNCH_BOMB = 'LAUNCH_BOMB',
+  LAUNCH_MISSILE = 'LAUNCH_MISSILE',
+
+  //MENU DE PAUSA
+  SET_GAME_PAUSED = 'SET_GAME_PAUSED',
+  REQUEST_SAVE_GAME = 'REQUEST_SAVE_GAME',
 }
 
 export enum ServerToClientEvents {
@@ -19,24 +29,36 @@ export enum ServerToClientEvents {
   UNITS_RECEIVED = 'UNITS_RECEIVED',
   UNIT_SELECTED = 'UNIT_SELECTED',
   SERVER_ERROR = 'SERVER_ERROR',
-  AVAILABLE_PLAYERS = 'AVAILABLE_PLAYERS'
+  AVAILABLE_PLAYERS = 'AVAILABLE_PLAYERS',
+  MOVE_ACCEPTED = 'MOVE_ACCEPTED',
+  GAME_STATE_UPDATE = 'GAME_STATE_UPDATE',
+  BOMB_LAUNCHED = 'BOMB_LAUNCHED',
+  BOMB_EXPLODED = 'BOMB_EXPLODED',
+  MISIL_DISPARADO = 'MISIL_DISPARADO',
+  MISIL_IMPACTADO = 'MISIL_IMPACTADO',
+  MISIL_ACTUALIZADO = "MISIL_ACTUALIZADO",
+  MUNICION_RECARGADA = 'MUNICION_RECARGADA',
+  GAME_ENDED = 'GAME_ENDED',
 
-  // In the future, sync events should be here
+  // En el futuro, los eventos de sincronizacion deberian ir aqui
+  GAME_PAUSE_UPDATED = 'GAME_PAUSE_UPDATED',
+  SAVE_GAME_RESULT = 'SAVE_GAME_RESULT',
 }
 
 /*
- * These events are internal to the client, they are not sent to the server,
- * they are used to communicate between components like managers and scenes
+ * Estos eventos son internos del cliente, no se envian al servidor,
+ * y se usan para comunicar entre componentes como managers y escenas
  */
 export enum ClientInternalEvents {
-  // SelectionManager
+  // Gestor de seleccion
   SELECTION_CHANGED = 'SELECTION_CHANGED',
   SELECTION_CONFIRMED = 'SELECTION_CONFIRMED',
   SELECTION_CLEARED = 'SELECTION_CLEARED',
   UNITS_UPDATED = 'UNITS_UPDATED',
 
-  // WebSocketClient
+  // Cliente WebSocket
   CONNECTED = 'CONNECTED',
   DISCONNECTED = 'DISCONNECTED',
   CONNECTION_ERROR = 'CONNECTION_ERROR',
 }
+
