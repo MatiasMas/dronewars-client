@@ -639,6 +639,7 @@ export class GameScene extends Phaser.Scene {
     const sprite = this.add.sprite(0, 0, textureKey, 0);
     sprite.setOrigin(0.5);
     sprite.setInteractive({ useHandCursor: true });
+    sprite.setScale(2.4, 2.4);
     sprite.play(animKey);
 
     const label = this.add.text(0, -36, this.getUnitLabel(unit.type), {

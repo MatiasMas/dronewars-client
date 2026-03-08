@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "dev": "vite"
+    "dev": "vite --host"
   },
   "dependencies": {
     "phaser": "^3.90.0"
