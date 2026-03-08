@@ -1,6 +1,7 @@
 import {WebSocketClient} from "../network/WebSocketClient";
 import {SelectionManager} from "../managers/SelectionManager";
 import {AnimationManager} from "../managers/AnimationManager";
+import {HighScoreManager} from "../managers/HighScoreManager";
 import {ClientInternalEvents, ServerToClientEvents} from "../types/CommunicationEvents";
 import {IUnit} from "../types/IUnit";
 import {IAvailablePlayer} from "../types/IAvailablePlayer";
@@ -25,6 +26,13 @@ type GameSceneInitData = {
 
 export class GameScene extends Phaser.Scene {
   private websocketClient: WebSocketClient | null = null;
+  private highScoreManager: HighScoreManager = new HighScoreManager();
+  private playerScore: number = 0;
+  private static readonly SCORE_DRONE: number = 10;
+  private static readonly SCORE_CARRIER: number = 50;
+  private nombreJugador: string = "";
+  private textoSiglas: Phaser.GameObjects.Text | null = null;
+  private capturandoNombre: boolean = false;
   private selectionManager: SelectionManager | null = null;
   private unitSprites: Map<string, UnitVisual> = new Map();
   private knownUnits: Map<string, IUnit> = new Map();
@@ -207,6 +215,11 @@ export class GameScene extends Phaser.Scene {
       Phaser.Input.Keyboard.KeyCodes.RIGHT,
       Phaser.Input.Keyboard.KeyCodes.ESC
     ]);
+
+    this.input.keyboard?.on("keydown", (event: KeyboardEvent) => {
+      this.manejarIngresoNombre(event);
+    });
+
   }
 
   private configurarDisparoConEspacio(): void {
@@ -1690,6 +1703,18 @@ export class GameScene extends Phaser.Scene {
     const esPortadronesDestruido = !!unidadDestruida && this.esPortadrones(unidadDestruida);
     const esPortadronesPropio = esPortadronesDestruido && this.playerUnitIds.has(unidadId);
 
+    const esUnidadPropia = this.playerUnitIds.has(unidadId);
+
+    if (!esUnidadPropia) {
+
+      if (esPortadronesDestruido) {
+        this.playerScore += GameScene.SCORE_CARRIER;
+      } else {
+        this.playerScore += GameScene.SCORE_DRONE;
+      }
+
+    }
+
     const sprite = this.unitSprites.get(unidadId);
 
     if (sprite) {
@@ -1858,6 +1883,48 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private manejarIngresoNombre(event: KeyboardEvent): void {
+
+    if (!this.capturandoNombre) return;
+
+    const letra = event.key.toUpperCase();
+
+    if (/^[A-Z]$/.test(letra) && this.nombreJugador.length < 3) {
+      this.nombreJugador += letra;
+    }
+
+    if (event.key === "Backspace") {
+      this.nombreJugador = this.nombreJugador.slice(0, -1);
+    }
+
+    if (this.textoSiglas) {
+
+      const display = this.nombreJugador
+          .padEnd(3, "_")
+          .split("")
+          .join(" ");
+
+      this.textoSiglas.setText(display);
+    }
+
+    if (this.nombreJugador.length === 3) {
+
+      this.capturandoNombre = false;
+
+      this.highScoreManager.saveScore(
+          this.nombreJugador,
+          this.playerScore
+      );
+
+      console.log("Score guardado:", this.nombreJugador, this.playerScore);
+
+      this.time.delayedCall(1000, () => {
+        this.scene.start("RankingScene");
+      });
+    }
+
+  }
+
   private manejarAccionRecarga(): void {
     if (!this.websocketClient || !this.selectionManager) {
       return;
@@ -1983,6 +2050,7 @@ export class GameScene extends Phaser.Scene {
       color: '#ffffff',
       fontStyle: 'bold'
     }).setOrigin(0.5).setDepth(101);
+
     const ganadorTexto = payload.draw
       ? 'No hubo ganador'
       : `Ganador: ${payload.winnerTeamId === 'player_1' ? 'Equipo 1' : 'Equipo 2'}`;
@@ -1994,7 +2062,21 @@ export class GameScene extends Phaser.Scene {
       align: 'center'
     }).setOrigin(0.5).setDepth(101);
 
-    this.panelResultado = this.add.container(0, 0, [fondo, titulo, detalle]).setScrollFactor(0).setDepth(101);
+    const textoIngresar = this.add.text(w / 2, h / 2 + 60, "INGRESA TUS SIGLAS:", {
+      fontSize: "28px",
+      color: "#ffffff"
+    }).setOrigin(0.5);
+
+    this.textoSiglas = this.add.text(w / 2, h / 2 + 100, "_ _ _", {
+      fontSize: "40px",
+      color: "#6aff00"
+    }).setOrigin(0.5);
+
+    this.nombreJugador = "";
+    this.capturandoNombre = true;
+
+    this.panelResultado = this.add.container(0, 0, [fondo, titulo, detalle, textoIngresar,
+      this.textoSiglas]).setScrollFactor(0).setDepth(101);
   }
 
   private textoRazonFin(reason: IGameEnded['reason']): string {
