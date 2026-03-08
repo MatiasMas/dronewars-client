@@ -1,11 +1,14 @@
 import Phaser from "phaser";
+import {HighScoreManager} from "../managers/HighScoreManager";
 
 export class RankingScene extends Phaser.Scene {
+    private highScoreManager = new HighScoreManager();
     constructor() {
         super("RankingScene");
     }
 
     create(): void {
+        const scores = this.highScoreManager.getScores();
         const { width, height } = this.scale;
         this.add.rectangle(width / 2, height / 2, width, height, 0x111827);
 
@@ -15,13 +18,9 @@ export class RankingScene extends Phaser.Scene {
             fontStyle: "bold"
         }).setOrigin(0.5);
 
-        const top = [
-            "1. AAA - 1820 pts",
-            "2. BBB - 1710 pts",
-            "3. CCC - 1660 pts",
-            "4. DDD - 1580 pts",
-            "5. EEE - 1490 pts"
-        ];
+        const top = scores.map((s, i) =>
+            `${i + 1}. ${s.name} - ${s.score} pts`
+        );
 
         top.forEach((line, i) => {
             this.add.text(width / 2, 190 + i * 48, line, {
