@@ -77,9 +77,10 @@ export class JoinGameScene extends Phaser.Scene {
         const gap = 56;
 
         players.slice(0, 6).forEach((player, idx) => {
+            const textColor = idx === 0 ? "#ef4444" : idx === 1 ? "#22c55e" : "#e2e8f0";
             this.createButton(`Unirme como ${player.playerName}`, startY + idx * gap, () => {
                 this.startGameWithPlayer(player.playerId);
-            });
+            }, textColor);
         });
     }
 
@@ -98,13 +99,13 @@ export class JoinGameScene extends Phaser.Scene {
         this.statusText?.setText(text);
     }
 
-    private createButton(label: string, y: number, onClick: () => void): void {
+    private createButton(label: string, y: number, onClick: () => void, textColor = "#e2e8f0"): void {
         const { width } = this.scale;
         const w = Math.min(620, width * 0.85);
         const h = 42;
 
         const bg = this.add.rectangle(width / 2, y, w, h, 0x1f2937).setStrokeStyle(2, 0x64748b);
-        const text = this.add.text(width / 2, y, label, { fontSize: "18px", color: "#e2e8f0" }).setOrigin(0.5);
+        const text = this.add.text(width / 2, y, label, { fontSize: "18px", color: textColor }).setOrigin(0.5);
 
         bg.setInteractive({ useHandCursor: true }).on("pointerdown", onClick);
         text.setInteractive({ useHandCursor: true }).on("pointerdown", onClick);
