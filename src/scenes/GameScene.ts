@@ -95,7 +95,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly ALTITUDE_SCROLL_MAX_DELTA = 0.6;
   private static readonly ALTITUDE_SCROLL_REPEAT_MS = 45;
   private static readonly MOVE_REPEAT_MS = 120;
-  private static readonly VELOCIDAD_CAMARA = 10;
+  private static readonly VELOCIDAD_CAMARA = 20;
   private static readonly AJUSTE_ROTACION_FRENTE_RAD = 0;
   private static readonly RANGO_RECARGA_MUNDO = 120;
   private static readonly RANGO_DISPARO_MISIL = 30;
