@@ -1,4 +1,4 @@
-import {WebSocketClient} from "../network/WebSocketClient";
+﻿import {WebSocketClient} from "../network/WebSocketClient";
 import {SelectionManager} from "../managers/SelectionManager";
 import {AnimationManager} from "../managers/AnimationManager";
 import {HighScoreManager} from "../managers/HighScoreManager";
@@ -13,6 +13,7 @@ import { IMisilDisparado } from "../types/IMisilDisparado";
 import { IMisilImpactado } from "../types/IMisilImpactado";
 import { IMisilActualizado } from "../types/IMisilActualizado";
 import { IGameEnded } from "../types/IGameEnded";
+import { ISideViewUnit } from "../types/ISideViewUnit";
 
 type UnitVisual = {
   container: Phaser.GameObjects.Container;
@@ -75,10 +76,17 @@ export class GameScene extends Phaser.Scene {
   private timerPortadronesActivo: boolean = false;
   private timerPortadronesObjetivoTexto: string = '';
   private avisoPausaContenedor: Phaser.GameObjects.Container | null = null;
-  /** Centrar cámara en este punto en el próximo frame (al recibir unidades). */
+  private sidebarUnidades: ISideViewUnit[] = [];
+  private sidebarUnidadesPorId: Map<string, ISideViewUnit> = new Map();
+  private sidebarMezclaAlertaPorUnidad: Map<string, number> = new Map();
+  private sidebarElementos: Phaser.GameObjects.GameObject[] = [];
+  private sidebarUnidadSeleccionadaId: string | null = null;
+  private sidebarNecesitaRender: boolean = true;
+  private tweenCamaraSeleccion: Phaser.Tweens.Tween | null = null;
+  /** Centrar camara en este punto en el proximo frame (al recibir unidades). */
   private pendingCameraCenter: { x: number; y: number } | null = null;
 
-  // Límites del mapa (mundo grande; el viewport solo muestra una parte y sigue a la unidad seleccionada)
+  // LÃ­mites del mapa (mundo grande; el viewport solo muestra una parte y sigue a la unidad seleccionada)
   private static readonly MAP_MIN_X = 0;
   private static readonly MAP_MAX_X = 6700;
   private static readonly MAP_MIN_Y = 0;
@@ -87,6 +95,23 @@ export class GameScene extends Phaser.Scene {
   private static readonly MAP_MAX_Z = 10;
   private static readonly MAP_MAX_Z_MISILES = 8;
   private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.005;
+  private static readonly PANEL_DRONES_RATIO_ANCHO = 0.2;
+  private static readonly PANEL_LATERAL_RATIO_ALTO = 0.2;
+  private static readonly SIDEBAR_MARGEN_INTERNO = 12;
+  private static readonly SIDEBAR_ALTO_CABECERA = 48;
+  private static readonly SIDEBAR_COLUMNAS = 2;
+  private static readonly SIDEBAR_ESPACIO_GRID = 8;
+  private static readonly SIDEBAR_LADO_CUADRO_BASE = 92;
+  private static readonly SIDEBAR_COLOR_FONDO_NORMAL = 0x121a2c;
+  private static readonly SIDEBAR_COLOR_FONDO_ALERTA = 0x2a1a10;
+  private static readonly SIDEBAR_COLOR_FONDO_DESTRUIDA = 0x505050;
+  private static readonly SIDEBAR_COLOR_BORDE_NORMAL = 0x2f4d8c;
+  private static readonly SIDEBAR_COLOR_BORDE_ALERTA = 0xff8c00;
+  private static readonly SIDEBAR_COLOR_BORDE_DESTRUIDA = 0xb5b5b5;
+  private static readonly SIDEBAR_COLOR_DETALLE_NORMAL = 0x93c5fd;
+  private static readonly SIDEBAR_COLOR_DETALLE_ALERTA = 0xffb347;
+  private static readonly SIDEBAR_COLOR_DETALLE_DESTRUIDA = 0xd0d0d0;
+  private static readonly SIDEBAR_FACTOR_LERP_ALERTA = 0.012;
 
 
   private static readonly MOVE_STEP = 5;
@@ -156,7 +181,7 @@ export class GameScene extends Phaser.Scene {
     mascara.setInvertAlpha(true);
     this.capaNiebla.setMask(mascara);
 
-    // Mundo más grande que el viewport: la cámara solo puede desplazarse dentro del mapa
+    // Mundo mas grande que el viewport: la cÃ¡mara solo puede desplazarse dentro del mapa
     this.cameras.main.setBounds(
       GameScene.MAP_MIN_X,
       GameScene.MAP_MIN_Y,
@@ -164,12 +189,17 @@ export class GameScene extends Phaser.Scene {
       GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y
     );
 
-    // Limitar el viewport de la cámara principal al 80% superior
-    const panelH = Math.floor(this.scale.height * 0.2);
-    this.cameras.main.setViewport(0, 0, this.scale.width, this.scale.height - panelH);
-
-    //Lanzamos panel de altura en pantalla
+    // Layout: panel lateral integrado en GameScene + 20% inferior derecha para vista lateral
+    this.aplicarLayoutConPanelDrones();
     this.scene.launch('SideViewScene');
+    this.scale.on('resize', this.aplicarLayoutConPanelDrones, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off('resize', this.aplicarLayoutConPanelDrones, this);
+      this.tweenCamaraSeleccion?.stop();
+      this.tweenCamaraSeleccion = null;
+      this.scene.stop('SideViewScene');
+      this.limpiarSidebarUI();
+    });
 
     this.websocketClient = new WebSocketClient();
 
@@ -235,7 +265,57 @@ export class GameScene extends Phaser.Scene {
     this.input.keyboard?.on("keydown", (event: KeyboardEvent) => {
       this.manejarIngresoNombre(event);
     });
+  }
 
+  private centrarCamaraConPanelIzquierdo(objetivoX: number, objetivoY: number): void {
+    const { scrollX, scrollY } = this.calcularScrollCamaraConPanelIzquierdo(objetivoX, objetivoY);
+    this.cameras.main.setScroll(scrollX, scrollY);
+  }
+
+  private calcularScrollCamaraConPanelIzquierdo(objetivoX: number, objetivoY: number): { scrollX: number; scrollY: number } {
+    const camara = this.cameras.main;
+    const anchoPanel = this.obtenerAnchoPanelDrones();
+    const anchoVisibleMapa = this.scale.width - anchoPanel;
+    const centroVisibleX = anchoPanel + (anchoVisibleMapa / 2);
+    const scrollXDeseado = objetivoX - centroVisibleX;
+    const scrollYDeseado = objetivoY - (camara.height / 2);
+
+    const anchoMapa = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
+    const altoMapa = GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y;
+    const maxScrollX = Math.max(GameScene.MAP_MIN_X, GameScene.MAP_MIN_X + anchoMapa - camara.width);
+    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - camara.height);
+
+    return {
+      scrollX: Phaser.Math.Clamp(scrollXDeseado, GameScene.MAP_MIN_X, maxScrollX),
+      scrollY: Phaser.Math.Clamp(scrollYDeseado, GameScene.MAP_MIN_Y, maxScrollY)
+    };
+  }
+
+  private animarCamaraConPanelIzquierdo(objetivoX: number, objetivoY: number): void {
+    const camara = this.cameras.main;
+    const { scrollX, scrollY } = this.calcularScrollCamaraConPanelIzquierdo(objetivoX, objetivoY);
+    const distancia = Phaser.Math.Distance.Between(camara.scrollX, camara.scrollY, scrollX, scrollY);
+    if (distancia < 1) {
+      this.tweenCamaraSeleccion?.stop();
+      this.tweenCamaraSeleccion = null;
+      camara.setScroll(scrollX, scrollY);
+      return;
+    }
+
+    this.tweenCamaraSeleccion?.stop();
+    this.tweenCamaraSeleccion = this.tweens.add({
+      targets: camara,
+      scrollX,
+      scrollY,
+      duration: 220,
+      ease: 'Sine.Out',
+      onComplete: () => {
+        this.tweenCamaraSeleccion = null;
+      },
+      onStop: () => {
+        this.tweenCamaraSeleccion = null;
+      }
+    });
   }
 
   private configurarDisparoConEspacio(): void {
@@ -388,6 +468,7 @@ export class GameScene extends Phaser.Scene {
     this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
       this.clearSelectionHighlight()
       this.updateSelectedUnitCoordsText()
+      this.emitirSeleccionParaSidebar(null);
     })
 
     // El servidor confirma la seleccion de unidad
@@ -420,10 +501,14 @@ export class GameScene extends Phaser.Scene {
       console.log(`[GameScene] Selection changed: ${unit.unitId}, sendind selection to server...`);
       this.websocketClient?.requestUnitSelection(unit.unitId);
       this.updateSelectedUnitCoordsText();
+      this.emitirSeleccionParaSidebar(unit.unitId);
+      const unidad = this.knownUnits.get(unit.unitId) ?? unit;
+      this.pendingCameraCenter = { x: unidad.x, y: unidad.y };
     });
 
-    this.selectionManager.on(ClientInternalEvents.SELECTION_CONFIRMED, () => {
+    this.selectionManager.on(ClientInternalEvents.SELECTION_CONFIRMED, (unit: IUnit) => {
       this.updateSelectedUnitCoordsText();
+      this.emitirSeleccionParaSidebar(unit.unitId);
     });
 
     this.selectionManager.on(ClientInternalEvents.UNITS_UPDATED, () => {
@@ -455,19 +540,75 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  update(_time: number): void {
+  private seleccionarUnidadDesdeSidebar(unitId: string): void {
+    if (!unitId || !this.selectionManager) {
+      return;
+    }
+
+    const unidadSeleccionada = this.selectionManager.selectUnit(unitId);
+    if (!unidadSeleccionada) {
+      return;
+    }
+
+    const unidad = this.knownUnits.get(unitId) ?? unidadSeleccionada;
+    this.pendingCameraCenter = { x: unidad.x, y: unidad.y };
+    this.emitirSeleccionParaSidebar(unitId);
+  }
+
+  private ciclarSeleccionUnidades(direccion: number): void {
+    if (!this.selectionManager) {
+      return;
+    }
+
+    const unidadesVivas = this.selectionManager
+      .getPlayerUnits()
+      .filter(unidad => {
+        const actual = this.knownUnits.get(unidad.unitId) ?? unidad;
+        return actual.health > 0;
+      });
+
+    if (unidadesVivas.length === 0) {
+      return;
+    }
+
+    const seleccionActualId = this.selectionManager.getSelectedUnit()?.unitId ?? null;
+    const indiceActual = unidadesVivas.findIndex(unidad => unidad.unitId === seleccionActualId);
+    const indiceBase = indiceActual >= 0 ? indiceActual : (direccion > 0 ? -1 : 0);
+    const siguienteIndice = Phaser.Math.Wrap(indiceBase + direccion, 0, unidadesVivas.length);
+    const unidadObjetivo = unidadesVivas[siguienteIndice];
+
+    const unidadSeleccionada = this.selectionManager.selectUnit(unidadObjetivo.unitId);
+    if (!unidadSeleccionada) {
+      return;
+    }
+
+    const unidadMapa = this.knownUnits.get(unidadObjetivo.unitId) ?? unidadSeleccionada;
+    this.pendingCameraCenter = { x: unidadMapa.x, y: unidadMapa.y };
+    this.emitirSeleccionParaSidebar(unidadObjetivo.unitId);
+  }
+
+  private emitirSeleccionParaSidebar(unitId: string | null): void {
+    this.sidebarUnidadSeleccionadaId = unitId;
+    this.sidebarNecesitaRender = true;
+  }
+
+  update(_time: number, delta: number): void {
     // Centrado inicial: aplicar siempre al inicio, antes de cualquier return
     if (this.pendingCameraCenter) {
       const cam = this.cameras.main;
       const { x, y } = this.pendingCameraCenter;
       this.pendingCameraCenter = null;
       if (cam.width > 0 && cam.height > 0) {
-        cam.centerOn(x, y);
-        console.log(`[GameScene] Camera centerOn(${x}, ${y}), scroll=(${cam.scrollX}, ${cam.scrollY})`);
+        this.animarCamaraConPanelIzquierdo(x, y);
       }
     }
 
     this.actualizarTimerPortadrones();
+
+    const sidebarAnimando = this.actualizarLerpSidebar(delta);
+    if (sidebarAnimando || this.sidebarNecesitaRender) {
+      this.renderizarSidebarDrones();
+    }
 
     if (this.partidaPausada || this.menuPausaVisible) { return; }
 
@@ -587,7 +728,7 @@ export class GameScene extends Phaser.Scene {
         textureKey = "carrierPortuguesMovCenital";
       }
     } else {
-      // Fallback muy raro: tipo desconocido, usar un rectángulo simple
+      // Fallback muy raro: tipo desconocido, usar un rectÃ¡ngulo simple
       const fallbackBody = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
       fallbackBody.setInteractive({ useHandCursor: true });
 
@@ -849,7 +990,7 @@ export class GameScene extends Phaser.Scene {
           );
         }
 
-        // Las coordenadas son del MUNDO, Phaser las renderizará según la cámara
+        // Las coordenadas son del MUNDO, Phaser las renderizarÃ¡ segÃºn la cÃ¡mara
         sprite.container.setPosition(update.position.x, update.position.y);
         if (typeof update.combustible === 'number') {
           const fuelLabel = this.unitFuelLabels.get(update.unitId);
@@ -875,45 +1016,101 @@ export class GameScene extends Phaser.Scene {
     this.emitirActualizacionDeAltura()
   }
 
+  private aplicarLayoutConPanelDrones(): void {
+    const altoPanelLateral = this.obtenerAltoPanelLateral();
+    const anchoMapa = Math.max(1, this.scale.width);
+    const altoMapa = Math.max(1, this.scale.height - altoPanelLateral);
+    this.cameras.main.setViewport(0, 0, anchoMapa, altoMapa);
+    this.sidebarNecesitaRender = true;
+  }
+
+  private obtenerAnchoPanelDrones(): number {
+    return Math.floor(this.scale.width * GameScene.PANEL_DRONES_RATIO_ANCHO);
+  }
+
+  private obtenerAltoPanelLateral(): number {
+    return Math.floor(this.scale.height * GameScene.PANEL_LATERAL_RATIO_ALTO);
+  }
+
+  private obtenerAltoMapaVisible(): number {
+    return this.scale.height - this.obtenerAltoPanelLateral();
+  }
+
+  private pointerEnAreaDeMapa(pointer: Phaser.Input.Pointer): boolean {
+    return pointer.x >= this.obtenerAnchoPanelDrones()
+      && pointer.y >= 0
+      && pointer.y < this.obtenerAltoMapaVisible();
+  }
+
+  private pointerEnPanelDrones(pointer: Phaser.Input.Pointer): boolean {
+    return pointer.x >= 0
+      && pointer.x < this.obtenerAnchoPanelDrones()
+      && pointer.y >= 0
+      && pointer.y < this.obtenerAltoMapaVisible();
+  }
+
+  private seleccionarDesdeClickSidebar(screenX: number, screenY: number): void {
+    const unidadesPropias = this.obtenerUnidadesSidebarOrdenadas();
+    if (unidadesPropias.length === 0) {
+      return;
+    }
+
+    const anchoPanel = this.obtenerAnchoPanelDrones();
+    const altoPanel = this.obtenerAltoMapaVisible();
+    const margen = GameScene.SIDEBAR_MARGEN_INTERNO;
+    const cabecera = GameScene.SIDEBAR_ALTO_CABECERA;
+    const { ladoCuadro, espacio, offsetY } = this.calcularGridSidebar(unidadesPropias.length, anchoPanel, altoPanel);
+
+    for (let index = 0; index < unidadesPropias.length; index += 1) {
+      const unidad = unidadesPropias[index];
+      const fila = Math.floor(index / GameScene.SIDEBAR_COLUMNAS);
+      const columna = index % GameScene.SIDEBAR_COLUMNAS;
+      const xLeft = margen + columna * (ladoCuadro + espacio);
+      const yTop = cabecera + margen + offsetY + fila * (ladoCuadro + espacio);
+      const dentro = screenX >= xLeft
+        && screenX <= (xLeft + ladoCuadro)
+        && screenY >= yTop
+        && screenY <= (yTop + ladoCuadro);
+      if (!dentro) {
+        continue;
+      }
+
+      if (unidad.health > 0) {
+        this.seleccionarUnidadDesdeSidebar(unidad.unitId);
+      }
+      return;
+    }
+  }
+
   // ===== METODOS DE CONVERSION MUNDO A PANTALLA =====
 
   /**
-   * Convierte coordenadas del mundo a pantalla, considerando la posición de la cámara
-   * La cámara está centrada en el dron seleccionado
+   * Convierte coordenadas del mundo a pantalla, considerando la posiciÃ³n de la cÃ¡mara
+   * La cÃ¡mara estÃ¡ centrada en el dron seleccionado
    */
   private mundoAPantalla(worldX: number, worldY: number): { x: number; y: number } {
-    // Obtener la posición de la cámara (centrada en el dron seleccionado)
-    const cameraX = this.cameras.main.scrollX + this.cameras.main.width / 2;
-    const cameraY = this.cameras.main.scrollY + this.cameras.main.height / 2;
-
-    // Convertir coordenadas del mundo a pantalla relativas a la cámara
-    const screenX = worldX - cameraX + this.cameras.main.width / 2;
-    const screenY = worldY - cameraY + this.cameras.main.height / 2;
+    const camara = this.cameras.main;
+    const screenX = worldX - camara.worldView.x + camara.x;
+    const screenY = worldY - camara.worldView.y + camara.y;
 
     return { x: screenX, y: screenY };
   }
 
   /**
-   * Convierte coordenadas de pantalla a mundo, considerando la posición de la cámara
+   * Convierte coordenadas de pantalla a mundo, considerando la posiciÃ³n de la cÃ¡mara
    */
   private pantallaAMundo(screenX: number, screenY: number): { x: number; y: number } {
-    // Obtener la posición de la cámara
-    const cameraX = this.cameras.main.scrollX + this.cameras.main.width / 2;
-    const cameraY = this.cameras.main.scrollY + this.cameras.main.height / 2;
+    const puntoMundo = this.cameras.main.getWorldPoint(screenX, screenY);
 
-    // Convertir coordenadas de pantalla a mundo
-    const worldX = screenX - this.cameras.main.width / 2 + cameraX;
-    const worldY = screenY - this.cameras.main.height / 2 + cameraY;
-
-    // Clampear dentro de los límites del mapa
+    // Clampear dentro de los lÃ­mites del mapa
     return {
-      x: Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X),
-      y: Phaser.Math.Clamp(worldY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y)
+      x: Phaser.Math.Clamp(puntoMundo.x, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X),
+      y: Phaser.Math.Clamp(puntoMundo.y, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y)
     };
   }
 
   /**
-   * Convierte un radio del mundo a píxeles de pantalla
+   * Convierte un radio del mundo a pÃ­xeles de pantalla
    */
   private radioMundoAPantalla(worldRadius: number): number {
     // Escala basada en el ancho visible
@@ -923,23 +1120,22 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Actualiza la posición de la cámara para seguir la unidad seleccionada.
-   * El viewport muestra solo una parte del mapa; la cámara se desplaza con la unidad.
+   * Actualiza la posiciÃ³n de la cÃ¡mara para seguir la unidad seleccionada.
+   * El viewport muestra solo una parte del mapa; la cÃ¡mara se desplaza con la unidad.
    */
   private actualizarCamara(): void {
     const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
     if (!unidadSeleccionada) {
       return;
     }
+    if (this.tweenCamaraSeleccion?.isPlaying()) {
+      return;
+    }
 
     const unit = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
-    const w = this.cameras.main.width;
-    const h = this.cameras.main.height;
+    this.centrarCamaraConPanelIzquierdo(unit.x, unit.y);
 
-    // Centrar la cámara en la unidad; setBounds ya limita el scroll al área del mapa
-    const scrollX = unit.x - w / 2;
-    const scrollY = unit.y - h / 2;
-    this.cameras.main.setScroll(scrollX, scrollY);
+    
   }
 
   private moverCamaraLibreConWASD(): void {
@@ -1015,9 +1211,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Al inicio del juego, enfoca la cámara en el portadrones del jugador:
+   * Al inicio del juego, enfoca la cÃ¡mara en el portadrones del jugador:
    * Player 1 -> AERIAL_CARRIER, Player 2 -> NAVAL_CARRIER.
-   * Se aplica en el próximo update() para tener dimensiones de cámara válidas.
+   * Se aplica en el prÃ³ximo update() para tener dimensiones de cÃ¡mara vÃ¡lidas.
    */
   private centrarCamaraEnPortadrones(playerUnits: IUnit[]): void {
     if (!playerUnits?.length) return;
@@ -1066,7 +1262,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawUI(): void {
-    // Borde del mapa (visual, sigue la cámara)
+    // Borde del mapa (visual, sigue la cÃ¡mara)
     const graphics = this.add.graphics({ x: 0, y: 0 });
     graphics.lineStyle(2, 0x00ff00, 0.5);
     graphics.strokeRect(
@@ -1076,7 +1272,7 @@ export class GameScene extends Phaser.Scene {
       GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y
     );
 
-    // ===== UI FIJA EN PANTALLA (no sigue cámara) =====
+    // ===== UI FIJA EN PANTALLA (no sigue cÃ¡mara) =====
     const titulo = this.add.text(
       this.cameras.main.centerX,
       30,
@@ -1109,6 +1305,7 @@ export class GameScene extends Phaser.Scene {
     this.crearAvisoPausa();
     this.actualizarAvisoPausa();
     this.crearPanelEstadisticasDron();
+    this.renderizarSidebarDrones();
   }
 
   private crearAvisoPausa(): void {
@@ -1181,7 +1378,7 @@ export class GameScene extends Phaser.Scene {
     const cuerpoDron = this.add.rectangle(imagenCenterX, imagenY, 64, 40, 0x374151);
     cuerpoDron.setStrokeStyle(2, 0x6b7280, 1);
 
-    // 3) Estadísticas debajo de la imagen
+    // 3) EstadÃ­sticas debajo de la imagen
     const textoBaseX = -panelWidth / 2 + 16;
     const textoBaseY = imagenY + 30;
 
@@ -1426,7 +1623,10 @@ export class GameScene extends Phaser.Scene {
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
       if (this.menuPausaVisible) {
         if (pointer.leftButtonDown()) {
-          this.manejarClickMenuPausa(pointer.x, pointer.y);
+          this.manejarClickMenuPausa(
+            pointer.x - this.cameras.main.x,
+            pointer.y - this.cameras.main.y
+          );
         }
         return;
       }
@@ -1435,7 +1635,14 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      if (pointer.y >= this.scale.height * 0.8) {
+      if (this.pointerEnPanelDrones(pointer)) {
+        if (pointer.leftButtonDown()) {
+          this.seleccionarDesdeClickSidebar(pointer.x, pointer.y);
+        }
+        return;
+      }
+
+      if (!this.pointerEnAreaDeMapa(pointer)) {
         return;
       }
 
@@ -1452,7 +1659,7 @@ export class GameScene extends Phaser.Scene {
       const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
       if (!unidadSeleccionada) {return}
 
-      // Convertir posición de pantalla a mundo
+      // Convertir posiciÃ³n de pantalla a mundo
       const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
       const unidadActual = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
       this.solicitarMovimiento(unidadSeleccionada.unitId, objetivoMundo.x, objetivoMundo.y, unidadActual.z);
@@ -1464,7 +1671,15 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      if (_pointer.y >= this.scale.height * 0.8) {
+      if (this.pointerEnPanelDrones(_pointer)) {
+        if (deltaY === 0) {
+          return;
+        }
+        this.ciclarSeleccionUnidades(deltaY > 0 ? 1 : -1);
+        return;
+      }
+
+      if (!this.pointerEnAreaDeMapa(_pointer)) {
         return;
       }
 
@@ -1529,7 +1744,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const pointer = this.input.activePointer;
-    if (pointer && pointer.y < this.scale.height * 0.8) {
+    if (pointer && this.pointerEnAreaDeMapa(pointer)) {
       const objetivo = this.pantallaAMundo(pointer.x, pointer.y);
       this.girarUnidadHaciaPunto(selectedUnit.unitId, objetivo.x, objetivo.y);
     }
@@ -1578,7 +1793,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (pointer.y >= this.scale.height * 0.8) {
+    if (!this.pointerEnAreaDeMapa(pointer)) {
       this.showError('Coloca el cursor sobre el mapa para disparar');
       return;
     }
@@ -1645,7 +1860,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBombLaunched(datosBomba: IBombLaunched): void {
-    // Dibuja la bomba en el mapa (coordenadas mundo para que haga scroll con la cámara)
+    // Dibuja la bomba en el mapa (coordenadas mundo para que haga scroll con la cÃ¡mara)
     const spriteBomba = this.add.ellipse(datosBomba.x, datosBomba.y, 12, 12, 0xffaa00);
     spriteBomba.setStrokeStyle(2, 0xff0000);
     this.bombSprites.set(datosBomba.bombId, spriteBomba);
@@ -1682,7 +1897,7 @@ export class GameScene extends Phaser.Scene {
       this.bombSprites.delete(datosExplosion.bombId);
     }
 
-    // Efecto visual de explosión (coordenadas mundo para que haga scroll)
+    // Efecto visual de explosiÃ³n (coordenadas mundo para que haga scroll)
     const ondaExplosion = this.add.circle(datosExplosion.x, datosExplosion.y, 32, 0xff5500, 0.45)
       .setStrokeStyle(2, 0xffdd00);
 
@@ -1727,7 +1942,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private manejarMisilDisparado(datosMisil: IMisilDisparado): void {
-    // Dibuja el misil en el mapa en coordenadas mundo (scroll con la cámara)
+    // Dibuja el misil en el mapa en coordenadas mundo (scroll con la cÃ¡mara)
     const spriteMisil = this.add.ellipse(datosMisil.x, datosMisil.y, 10, 6, 0x00bcd4);
     spriteMisil.setStrokeStyle(1, 0xffffff);
     spriteMisil.setDepth(5);
@@ -2279,7 +2494,7 @@ export class GameScene extends Phaser.Scene {
     this.timerPortadronesDeadlineMs = null;
     this.timerPortadronesTexto?.setVisible(false);
 
-    // Bloquea selección/interacciones
+    // Bloquea selecciÃ³n/interacciones
     this.selectionManager?.deselectUnit();
     this.unitSprites.forEach(s => s.sprite.disableInteractive());
     this.botonRecargaContenedor?.disableInteractive();
@@ -2327,7 +2542,7 @@ export class GameScene extends Phaser.Scene {
 
     const razones: Record<string, string> = {
       ALL_UNITS_DESTROYED: 'Todas las unidades de un equipo fueron destruidas.',
-      CARRIER_DESTROYED_AND_NO_RESOURCES: 'Portadrones destruido y unidades restantes sin combustible o munición.',
+      CARRIER_DESTROYED_AND_NO_RESOURCES: 'Portadrones destruido y unidades restantes sin combustible o municiÃ³n.',
       CARRIER_DESTROYED_TIMEOUT_DRAW: 'Portadrones destruido.'
     };
     if (!reason) return 'Fin de partida';
@@ -2368,19 +2583,285 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private limpiarSidebarElementos(): void {
+    this.sidebarElementos.forEach(elemento => elemento.destroy());
+    this.sidebarElementos = [];
+  }
+
+  private limpiarSidebarUI(): void {
+    this.limpiarSidebarElementos();
+    this.sidebarUnidadesPorId.clear();
+    this.sidebarUnidades = [];
+    this.sidebarMezclaAlertaPorUnidad.clear();
+    this.sidebarUnidadSeleccionadaId = null;
+    this.sidebarNecesitaRender = true;
+  }
+
+  private actualizarSidebarUnidades(unidadesActualizadas: ISideViewUnit[]): void {
+    const idsPropiosActualizados = new Set<string>();
+
+    unidadesActualizadas.forEach(unidad => {
+      if (!unidad.isPlayerUnit || !this.esUnidadRenderizableSidebar(unidad.type)) {
+        return;
+      }
+
+      idsPropiosActualizados.add(unidad.unitId);
+      this.sidebarUnidadesPorId.set(unidad.unitId, {
+        ...this.sidebarUnidadesPorId.get(unidad.unitId),
+        ...unidad
+      });
+      if (!this.sidebarMezclaAlertaPorUnidad.has(unidad.unitId)) {
+        this.sidebarMezclaAlertaPorUnidad.set(unidad.unitId, unidad.tieneEnemigoEnVision === true ? 1 : 0);
+      }
+    });
+
+    this.sidebarUnidadesPorId.forEach((unidadGuardada, unitId) => {
+      if (!idsPropiosActualizados.has(unitId)) {
+        this.sidebarUnidadesPorId.set(unitId, {
+          ...unidadGuardada,
+          health: 0,
+          tieneEnemigoEnVision: false
+        });
+        this.sidebarMezclaAlertaPorUnidad.set(unitId, 0);
+      }
+    });
+
+    this.sidebarUnidades = Array.from(this.sidebarUnidadesPorId.values());
+    this.sidebarNecesitaRender = true;
+  }
+
+  private actualizarLerpSidebar(delta: number): boolean {
+    let huboCambios = false;
+    const factor = Math.min(1, Math.max(0.01, delta * GameScene.SIDEBAR_FACTOR_LERP_ALERTA));
+
+    this.sidebarUnidades.forEach(unidad => {
+      if (!unidad.isPlayerUnit || !this.esUnidadRenderizableSidebar(unidad.type)) {
+        return;
+      }
+
+      const objetivo = unidad.health > 0 && unidad.tieneEnemigoEnVision === true ? 1 : 0;
+      const actual = this.sidebarMezclaAlertaPorUnidad.get(unidad.unitId) ?? objetivo;
+      const interpolado = Phaser.Math.Linear(actual, objetivo, factor);
+      const siguiente = Math.abs(interpolado - objetivo) < 0.01 ? objetivo : interpolado;
+
+      if (Math.abs(siguiente - actual) > 0.001) {
+        this.sidebarMezclaAlertaPorUnidad.set(unidad.unitId, siguiente);
+        huboCambios = true;
+      }
+    });
+
+    return huboCambios;
+  }
+
+  private renderizarSidebarDrones(): void {
+    this.limpiarSidebarElementos();
+
+    const anchoPanel = this.obtenerAnchoPanelDrones();
+    const altoPanel = this.obtenerAltoMapaVisible();
+    const margen = GameScene.SIDEBAR_MARGEN_INTERNO;
+    const cabecera = GameScene.SIDEBAR_ALTO_CABECERA;
+
+    const titulo = this.add.text(margen, margen, 'Mis unidades', {
+      fontSize: '20px',
+      color: '#f8fafc',
+      fontStyle: 'bold'
+    });
+    titulo.setScrollFactor(0).setDepth(132);
+    this.sidebarElementos.push(titulo);
+
+    const unidadesPropias = this.obtenerUnidadesSidebarOrdenadas();
+
+    if (unidadesPropias.length === 0) {
+      const vacio = this.add.text(margen, cabecera + margen, 'Aun no hay unidades disponibles.', {
+        fontSize: '13px',
+        color: '#94a3b8'
+      });
+      vacio.setScrollFactor(0).setDepth(132);
+      this.sidebarElementos.push(vacio);
+      this.sidebarNecesitaRender = false;
+      return;
+    }
+
+    const etiquetasSidebar = this.obtenerEtiquetasSidebarPorUnidad(unidadesPropias);
+    const { ladoCuadro, espacio, offsetY } = this.calcularGridSidebar(unidadesPropias.length, anchoPanel, altoPanel);
+    const fuenteEtiqueta = ladoCuadro >= 74 ? '14px' : ladoCuadro >= 52 ? '12px' : ladoCuadro >= 36 ? '10px' : '9px';
+
+    unidadesPropias.forEach((unidad, index) => {
+      const fila = Math.floor(index / GameScene.SIDEBAR_COLUMNAS);
+      const columna = index % GameScene.SIDEBAR_COLUMNAS;
+      const xLeft = margen + columna * (ladoCuadro + espacio);
+      const yTop = cabecera + margen + offsetY + fila * (ladoCuadro + espacio);
+      const centroX = xLeft + (ladoCuadro / 2);
+      const habilitada = unidad.health > 0;
+      const mezclaAlerta = habilitada ? (this.sidebarMezclaAlertaPorUnidad.get(unidad.unitId) ?? 0) : 0;
+
+      const colorFondo = habilitada
+        ? this.lerpColorEnteroSidebar(GameScene.SIDEBAR_COLOR_FONDO_NORMAL, GameScene.SIDEBAR_COLOR_FONDO_ALERTA, mezclaAlerta)
+        : GameScene.SIDEBAR_COLOR_FONDO_DESTRUIDA;
+      const colorBorde = habilitada
+        ? this.lerpColorEnteroSidebar(GameScene.SIDEBAR_COLOR_BORDE_NORMAL, GameScene.SIDEBAR_COLOR_BORDE_ALERTA, mezclaAlerta)
+        : GameScene.SIDEBAR_COLOR_BORDE_DESTRUIDA;
+      const colorDetalle = habilitada
+        ? this.lerpColorEnteroSidebar(GameScene.SIDEBAR_COLOR_DETALLE_NORMAL, GameScene.SIDEBAR_COLOR_DETALLE_ALERTA, mezclaAlerta)
+        : GameScene.SIDEBAR_COLOR_DETALLE_DESTRUIDA;
+      const esSeleccionada = this.sidebarUnidadSeleccionadaId === unidad.unitId;
+
+      const tarjeta = this.add.rectangle(centroX, yTop + (ladoCuadro / 2), ladoCuadro, ladoCuadro, colorFondo, 0.97);
+      tarjeta.setStrokeStyle(esSeleccionada ? 3 : 2, esSeleccionada ? 0xfff06a : colorBorde, 1);
+      tarjeta.setScrollFactor(0).setDepth(132);
+      this.sidebarElementos.push(tarjeta);
+
+      const etiquetaTarjeta = this.add.text(centroX, yTop + (ladoCuadro / 2), etiquetasSidebar.get(unidad.unitId) ?? `Dron ${index + 1}`, {
+        fontSize: fuenteEtiqueta,
+        color: this.colorNumeroAHexSidebar(colorDetalle),
+        fontStyle: 'bold',
+        align: 'center'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(133);
+      this.sidebarElementos.push(etiquetaTarjeta);
+    });
+
+    this.sidebarNecesitaRender = false;
+  }
+
+  private calcularGridSidebar(cantidadUnidades: number, anchoPanel: number, altoPanel: number): { ladoCuadro: number; espacio: number; filas: number; offsetY: number } {
+    const filas = Math.max(1, Math.ceil(cantidadUnidades / GameScene.SIDEBAR_COLUMNAS));
+    const espacio = GameScene.SIDEBAR_ESPACIO_GRID;
+    const anchoDisponible = Math.max(1, anchoPanel - GameScene.SIDEBAR_MARGEN_INTERNO * 2);
+    const altoDisponible = Math.max(1, altoPanel - GameScene.SIDEBAR_ALTO_CABECERA - GameScene.SIDEBAR_MARGEN_INTERNO);
+
+    const ladoPorAncho = Math.floor((anchoDisponible - (GameScene.SIDEBAR_COLUMNAS - 1) * espacio) / GameScene.SIDEBAR_COLUMNAS);
+    const ladoPorAlto = Math.floor((altoDisponible - (filas - 1) * espacio) / filas);
+    const ladoCuadro = Math.max(1, Math.min(GameScene.SIDEBAR_LADO_CUADRO_BASE, ladoPorAncho, ladoPorAlto));
+
+    const altoBloque = filas * ladoCuadro + Math.max(0, filas - 1) * espacio;
+    const offsetY = Math.max(0, Math.floor((altoDisponible - altoBloque) / 8));
+
+    return { ladoCuadro, espacio, filas, offsetY };
+  }
+
+  private obtenerUnidadesSidebarOrdenadas(): ISideViewUnit[] {
+    return this.sidebarUnidades
+      .filter(unidad => unidad.isPlayerUnit && this.esUnidadRenderizableSidebar(unidad.type))
+      .sort((a, b) => {
+        const prioridad = this.obtenerPrioridadSidebar(a.type) - this.obtenerPrioridadSidebar(b.type);
+        if (prioridad !== 0) {
+          return prioridad;
+        }
+        return a.unitId.localeCompare(b.unitId);
+      });
+  }
+
+  private obtenerEtiquetasSidebarPorUnidad(unidades: ISideViewUnit[]): Map<string, string> {
+    const etiquetas = new Map<string, string>();
+    let numeroDron = 1;
+
+    unidades.forEach(unidad => {
+      if (this.esPortadronSidebar(unidad.type)) {
+        etiquetas.set(unidad.unitId, 'Portadron');
+        return;
+      }
+      etiquetas.set(unidad.unitId, `Dron ${numeroDron}`);
+      numeroDron += 1;
+    });
+
+    return etiquetas;
+  }
+
+  private lerpColorEnteroSidebar(colorDesde: number, colorHasta: number, factor: number): number {
+    const desdeR = (colorDesde >> 16) & 0xff;
+    const desdeG = (colorDesde >> 8) & 0xff;
+    const desdeB = colorDesde & 0xff;
+    const hastaR = (colorHasta >> 16) & 0xff;
+    const hastaG = (colorHasta >> 8) & 0xff;
+    const hastaB = colorHasta & 0xff;
+
+    const r = Math.round(Phaser.Math.Linear(desdeR, hastaR, factor));
+    const g = Math.round(Phaser.Math.Linear(desdeG, hastaG, factor));
+    const b = Math.round(Phaser.Math.Linear(desdeB, hastaB, factor));
+
+    return (r << 16) | (g << 8) | b;
+  }
+
+  private colorNumeroAHexSidebar(color: number): string {
+    return `#${color.toString(16).padStart(6, '0')}`;
+  }
+
+  private esUnidadRenderizableSidebar(tipo: string): boolean {
+    return tipo === 'AERIAL_DRONE'
+      || tipo === 'NAVAL_DRONE'
+      || tipo === 'AERIAL_CARRIER'
+      || tipo === 'NAVAL_CARRIER';
+  }
+
+  private esPortadronSidebar(tipo: string): boolean {
+    return tipo === 'AERIAL_CARRIER' || tipo === 'NAVAL_CARRIER';
+  }
+
+  private obtenerPrioridadSidebar(tipo: string): number {
+    switch (tipo) {
+      case 'AERIAL_CARRIER':
+        return 0;
+      case 'NAVAL_CARRIER':
+        return 1;
+      case 'AERIAL_DRONE':
+        return 2;
+      case 'NAVAL_DRONE':
+        return 3;
+      default:
+        return 4;
+    }
+  }
+
   private emitirActualizacionDeAltura(): void {
-    const unidades = Array.from(this.knownUnits.values()).map(unidad => ({
+    const unidadesConEnemigoEnVision = this.obtenerUnidadesConEnemigoEnVision();
+    const unidades: ISideViewUnit[] = Array.from(this.knownUnits.values()).map(unidad => ({
       unitId: unidad.unitId,
       x: unidad.x,
+      y: unidad.y,
       z: unidad.z,
       type: unidad.type,
       isPlayerUnit: this.playerUnitIds.has(unidad.unitId),
       health: unidad.health,
+      combustible: unidad.combustible,
+      tieneEnemigoEnVision: unidadesConEnemigoEnVision.has(unidad.unitId),
       esVisible: this.playerUnitIds.has(unidad.unitId)
         ? true
         : this.esVisibleParaDronesPropios(unidad),
     }));
+    this.actualizarSidebarUnidades(unidades);
     this.game.events.emit('altura-unidades-actualizada', unidades);
+  }
+
+  private obtenerUnidadesConEnemigoEnVision(): Set<string> {
+    const unidadesConVision = new Set<string>();
+    const enemigosDron = Array.from(this.knownUnits.values()).filter(unidad =>
+      !this.playerUnitIds.has(unidad.unitId) &&
+      this.esUnidadDron(unidad) &&
+      unidad.health > 0
+    );
+
+    for (const unidad of this.knownUnits.values()) {
+      if (!this.playerUnitIds.has(unidad.unitId)) {
+        continue;
+      }
+      if ((!this.esUnidadDron(unidad) && !this.esPortadrones(unidad)) || unidad.health <= 0) {
+        continue;
+      }
+
+      const rango = this.obtenerRangoVisionUnidad(unidad);
+      const rango2 = rango * rango;
+
+      for (const enemigo of enemigosDron) {
+        const dx = unidad.x - enemigo.x;
+        const dy = unidad.y - enemigo.y;
+        if ((dx * dx + dy * dy) <= rango2) {
+          unidadesConVision.add(unidad.unitId);
+          break;
+        }
+      }
+    }
+
+    return unidadesConVision;
   }
 
   private esVisibleParaDronesPropios(unidadEnemiga: IUnit): boolean {

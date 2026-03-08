@@ -6,9 +6,7 @@ import { LoadGameScene } from "./scenes/LoadGameScene";
 import { RankingScene } from "./scenes/RankingScene";
 import { GameScene } from "./scenes/GameScene";
 import { SideViewScene } from "./scenes/SideViewScene";
-
-
-const config: Phaser.Types.Core.GameConfig = {
+const config = {
     type: Phaser.AUTO,
     width: window.innerWidth,
     height: window.innerHeight,
@@ -34,5 +32,4 @@ const config: Phaser.Types.Core.GameConfig = {
         SideViewScene
     ]
 };
-
 new Phaser.Game(config);
