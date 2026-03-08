@@ -2044,6 +2044,7 @@ export class GameScene extends Phaser.Scene {
       console.log("Score guardado:", this.nombreJugador, this.playerScore);
 
       this.time.delayedCall(1000, () => {
+        this.scene.stop('SideViewScene');
         this.scene.start("RankingScene");
       });
     }
