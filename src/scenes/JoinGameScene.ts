@@ -77,7 +77,7 @@ export class JoinGameScene extends Phaser.Scene {
         const gap = 56;
 
         players.slice(0, 6).forEach((player, idx) => {
-            this.createButton(`Unirme como ${player.playerName} (${player.playerId})`, startY + idx * gap, () => {
+            this.createButton(`Unirme como ${player.playerName}`, startY + idx * gap, () => {
                 this.startGameWithPlayer(player.playerId);
             });
         });
