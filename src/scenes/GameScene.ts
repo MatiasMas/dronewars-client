@@ -662,6 +662,20 @@ export class GameScene extends Phaser.Scene {
 
     const container = this.add.container(x, y, [sprite, label, hpText, fuelText]);
 
+    let depth = 0;
+
+    if (unit.type === "NAVAL_CARRIER") {
+      depth = 0;
+    }
+    else if (!isPlayerUnit) {
+      depth = 10;
+    }
+    else {
+      depth = 20;
+    }
+
+    container.setDepth(depth);
+
     if (unit.health <= 0) {
       sprite.setTint(0x666666);
       sprite.disableInteractive();
