@@ -10,7 +10,7 @@ export class WebSocketClient {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnected: boolean = false;
 
-  constructor(url: string = 'ws://localhost:8081/game') {
+  constructor(url: string = 'ws://192.168.1.68:8081/game') {
     this.url = url;
  }
 
@@ -119,6 +119,18 @@ export class WebSocketClient {
     }
 
     this.eventListeners.get(event)?.push(callback);
+  }
+
+  public off(event: string, callback: EventCallback): void {
+    const callbacks = this.eventListeners.get(event);
+    if (!callbacks || callbacks.length === 0) {
+      return;
+    }
+
+    this.eventListeners.set(
+      event,
+      callbacks.filter(cb => cb !== callback)
+    );
   }
 
   public isConnectedToServer(): boolean {
@@ -231,6 +243,11 @@ export class WebSocketClient {
         return;
       }
 
+      if (data.type === ServerToClientEvents.UNIT_DESTROYED) {
+        this.emit(ServerToClientEvents.UNIT_DESTROYED, data.payload);
+        return;
+      }
+
       if (data.type === ServerToClientEvents.MUNICION_RECARGADA) {
         this.emit(ServerToClientEvents.MUNICION_RECARGADA, data.payload);
         return;
@@ -274,11 +291,6 @@ export class WebSocketClient {
       }
 
       // Si no coincide con nada específico, envia el tipo recibido a los escuchas.
-      if (data.type) {
-        this.emit(data.type, data);
-      }
-
-// Si no coincide con nada específico, emite el objeto completo
       if (data.type) {
         this.emit(data.type, data);
       }
