@@ -12,7 +12,7 @@ export class JoinGameScene extends Phaser.Scene {
     private hasStartedGame = false;
     private joinButtons: Array<{
         bg: Phaser.GameObjects.Rectangle;
-        text: Phaser.GameObjects.Text;
+        texts: Phaser.GameObjects.Text[];
     }> = [];
     private availablePlayersListener: ((players: IAvailablePlayer[]) => void) | null = null;
     private readinessPollTimer: ReturnType<typeof setInterval> | null = null;
@@ -115,10 +115,14 @@ export class JoinGameScene extends Phaser.Scene {
         this.clearJoinButtons();
 
         players.slice(0, 6).forEach((player, idx) => {
-            const textColor = idx === 0 ? "#ef4444" : idx === 1 ? "#22c55e" : "#e2e8f0";
-            const button = this.createButton(`Unirme como ${player.playerName}`, startY + idx * gap, () => {
+            const playerNameColor =
+                player.playerId === "player_1" ? "#ef4444" :
+                player.playerId === "player_2" ? "#22c55e" :
+                "#e2e8f0";
+
+            const button = this.createJoinPlayerButton("Unirme como ", player.playerName, startY + idx * gap, () => {
                 this.tryJoinAsPlayer(player.playerId);
-            }, textColor);
+            }, playerNameColor);
             this.joinButtons.push(button);
         });
     }
@@ -126,9 +130,39 @@ export class JoinGameScene extends Phaser.Scene {
     private clearJoinButtons(): void {
         this.joinButtons.forEach(button => {
             button.bg.destroy();
-            button.text.destroy();
+            button.texts.forEach(text => text.destroy());
         });
         this.joinButtons = [];
+    }
+
+    private createJoinPlayerButton(
+        prefix: string,
+        playerName: string,
+        y: number,
+        onClick: () => void,
+        playerNameColor: string
+    ): {
+        bg: Phaser.GameObjects.Rectangle;
+        texts: Phaser.GameObjects.Text[];
+    } {
+        const { width } = this.scale;
+        const w = Math.min(620, width * 0.85);
+        const h = 42;
+
+        const bg = this.add.rectangle(width / 2, y, w, h, 0x1f2937).setStrokeStyle(2, 0x64748b);
+        const prefixText = this.add.text(0, y, prefix, { fontSize: "18px", color: "#e2e8f0" }).setOrigin(0, 0.5);
+        const nameText = this.add.text(0, y, playerName, { fontSize: "18px", color: playerNameColor }).setOrigin(0, 0.5);
+
+        const totalTextWidth = prefixText.width + nameText.width;
+        const startX = width / 2 - totalTextWidth / 2;
+        prefixText.setX(startX);
+        nameText.setX(startX + prefixText.width);
+
+        bg.setInteractive({ useHandCursor: true }).on("pointerdown", onClick);
+        prefixText.setInteractive({ useHandCursor: true }).on("pointerdown", onClick);
+        nameText.setInteractive({ useHandCursor: true }).on("pointerdown", onClick);
+
+        return { bg, texts: [prefixText, nameText] };
     }
 
     private async tryJoinAsPlayer(playerId: string): Promise<void> {
