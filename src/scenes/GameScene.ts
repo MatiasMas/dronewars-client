@@ -2,6 +2,7 @@ import {WebSocketClient} from "../network/WebSocketClient";
 import {SelectionManager} from "../managers/SelectionManager";
 import {AnimationManager} from "../managers/AnimationManager";
 import {HighScoreManager} from "../managers/HighScoreManager";
+import {SoundManager} from "../managers/SoundManager";
 import {ClientInternalEvents, ServerToClientEvents} from "../types/CommunicationEvents";
 import {IUnit} from "../types/IUnit";
 import {IAvailablePlayer} from "../types/IAvailablePlayer";
@@ -33,6 +34,7 @@ type UnitDestroyedPayload = {
 
 export class GameScene extends Phaser.Scene {
   private websocketClient: WebSocketClient | null = null;
+  private soundManager!: SoundManager;
   private highScoreManager: HighScoreManager = new HighScoreManager();
   private playerScore: number = 0;
   private static readonly SCORE_DRONE: number = 10;
@@ -168,11 +170,13 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     this.load.image('ocean', 'images/ocean.png');
     AnimationManager.preload(this);
+    SoundManager.preload(this);
   }
 
 
   async create(data: GameSceneInitData = {}) {
     console.log("[GameScene] Creating scene...");
+    this.soundManager = new SoundManager(this);
     AnimationManager.createAnimations(this);
 
     // Creando imagen de background
@@ -2099,6 +2103,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBombExploded(datosExplosion: IBombExploded): void {
+    this.soundManager.playExplosion();
     // Limpia la bomba del mapa si existe.
     const spriteBomba = this.bombSprites.get(datosExplosion.bombId);
     if (spriteBomba) {
@@ -2197,6 +2202,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private manejarMisilImpactado(datosImpacto: IMisilImpactado): void {
+    this.soundManager.playExplosion();
     const spriteMisil = this.spritesMisiles.get(datosImpacto.misilId);
     if (spriteMisil) {
       spriteMisil.destroy();
@@ -2260,6 +2266,7 @@ export class GameScene extends Phaser.Scene {
     const sprite = this.unitSprites.get(unidadId);
 
     if (sprite) {
+      this.soundManager.playUnitDestroyed();
       const colorExplosion = tipoAtaque === 'bomba' ? 0xff5500 : 0x00bcd4;
       const onda = this.add.circle(sprite.container.x, sprite.container.y, 18, colorExplosion, 0.4);
       onda.setDepth(8);
@@ -2361,6 +2368,7 @@ export class GameScene extends Phaser.Scene {
     const zLimitado = Phaser.Math.Clamp(objetivoZ, GameScene.MAP_MIN_Z, maximoZ);
 
     this.girarUnidadHaciaPunto(unidadId, xLimitado, yLimitado);
+    this.soundManager.playUnitMove();
     this.websocketClient.solicitarMovimientoUnidad(unidadId, xLimitado, yLimitado, zLimitado);
     this.lastMoveRequestAt = ahoraMs;
   }
