@@ -2593,11 +2593,11 @@ export class GameScene extends Phaser.Scene {
 
     const overlay = this.add.rectangle(centroX, centroY, anchoPantalla, altoPantalla, 0x000000, 0.45);
 
-    const panel = this.add.rectangle(centroX, centroY, 380, 330, 0x111827, 0.96);
+    const panel = this.add.rectangle(centroX, centroY, 390, 390, 0x111827, 0.96);
     panel.setStrokeStyle(2, 0x4b5563, 0.95);
     panel.setInteractive();
 
-    const titulo = this.add.text(centroX, centroY - 125, 'Menu de pausa', {
+    const titulo = this.add.text(centroX, centroY - 150, 'Menu de pausa', {
       fontSize: '24px',
       color: '#f9fafb',
       fontStyle: 'bold'
@@ -2644,19 +2644,28 @@ export class GameScene extends Phaser.Scene {
       return { contenedor, texto: etiqueta };
     };
 
-    const botonPausa = crearBoton(centroY - 55, 'Pausar partida', () => {
+    const botonPausa = crearBoton(centroY - 85, 'Pausar partida', () => {
       this.websocketClient?.solicitarPausaPartida(!this.partidaPausada);
     });
 
-    const botonGuardar = crearBoton(centroY - 5, 'Guardar partida', () => {
+    const botonGuardar = crearBoton(centroY - 35, 'Guardar partida', () => {
       this.websocketClient?.solicitarGuardarPartida();
     });
 
-    const botonConfig = crearBoton(centroY + 45, 'Configuracion', () => {
+    const botonInstrucciones = crearBoton(centroY + 15, 'Instrucciones', () => {
+      if (this.scene.isActive('InstructionsScene')) {
+        return;
+      }
+
+      this.scene.launch('InstructionsScene', { source: 'pause-menu' });
+      this.scene.pause();
+    });
+
+    const botonConfig = crearBoton(centroY + 65, 'Configuracion', () => {
       this.showError('Configuracion pendiente');
     });
 
-    const botonSalir = crearBoton(centroY + 95, 'Salir al menu', () => {
+    const botonSalir = crearBoton(centroY + 115, 'Salir al menu', () => {
       const confirmar = window.confirm('Seguro que queres salir al menu principal?');
       if (!confirmar) {
         return;
@@ -2672,6 +2681,7 @@ export class GameScene extends Phaser.Scene {
       titulo,
       botonPausa.contenedor,
       botonGuardar.contenedor,
+      botonInstrucciones.contenedor,
       botonConfig.contenedor,
       botonSalir.contenedor
     ]);
