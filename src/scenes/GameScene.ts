@@ -23,6 +23,12 @@ type UnitVisual = {
 
 type GameSceneInitData = {
   preferredPlayerId?: string;
+  websocketClient?: WebSocketClient;
+  preRegistered?: boolean;
+};
+
+type UnitDestroyedPayload = {
+  unitId?: string;
 };
 
 export class GameScene extends Phaser.Scene {
@@ -125,7 +131,7 @@ export class GameScene extends Phaser.Scene {
   private static readonly ALTITUDE_SCROLL_MAX_DELTA = 0.6;
   private static readonly ALTITUDE_SCROLL_REPEAT_MS = 45;
   private static readonly MOVE_REPEAT_MS = 120;
-  private static readonly VELOCIDAD_CAMARA = 10;
+  private static readonly VELOCIDAD_CAMARA = 20;
   private static readonly AJUSTE_ROTACION_FRENTE_RAD = 0;
   private static readonly RANGO_RECARGA_MUNDO = 120;
   private static readonly RANGO_DISPARO_MISIL = 30;
@@ -205,36 +211,41 @@ export class GameScene extends Phaser.Scene {
       this.limpiarVistaLateralInferiorUI();
     });
 
-    this.websocketClient = new WebSocketClient();
+    this.websocketClient = data.websocketClient ?? new WebSocketClient();
 
-    try {
-      // Configurando escuchas del websocket
-      await this.websocketClient.connect();
-    } catch (err) {
-      console.error("[GameScene] Error connecting to server:", err);
-      this.showError("Error connecting to server");
-      return;
+    if (!this.websocketClient.isConnectedToServer()) {
+      try {
+        // Configurando escuchas del websocket
+        await this.websocketClient.connect();
+      } catch (err) {
+        console.error("[GameScene] Error connecting to server:", err);
+        this.showError("Error connecting to server");
+        return;
+      }
     }
 
     this.selectionManager = new SelectionManager();
     this.setupEventListeners();
 
-    // Registrando jugador en el servidor y esperando confirmacion
-    await this.waitForAvailablePlayers();
-
-    // Seleccionando el primer jugador disponible y registrandolo en el servidor
     const preferredFromRegistry = this.registry.get("preferredPlayerId");
     const preferredPlayerId = (data.preferredPlayerId ?? preferredFromRegistry) as string | undefined;
-    const selectedPlayerId = this.selectPreferredOrFirstAvailablePlayer(preferredPlayerId);
+    const usingPreRegisteredSession = data.preRegistered === true;
 
-    if (!selectedPlayerId) {
-      this.showError('No players available');
-      return;
+    if (!usingPreRegisteredSession) {
+      // Registrando jugador en el servidor y esperando confirmacion
+      await this.waitForAvailablePlayers();
+
+      // Seleccionando el primer jugador disponible y registrandolo en el servidor
+      const selectedPlayerId = this.selectPreferredOrFirstAvailablePlayer(preferredPlayerId);
+
+      if (!selectedPlayerId) {
+        this.showError('No players available');
+        return;
+      }
+
+      this.websocketClient.registerPlayer(selectedPlayerId);
+      await this.waitForPlayerRegistration();
     }
-
-
-    this.websocketClient.registerPlayer(selectedPlayerId);
-    await this.waitForPlayerRegistration();
 
     this.websocketClient.requestPlayerUnits();
 
@@ -433,10 +444,33 @@ export class GameScene extends Phaser.Scene {
       this.updateSelectedUnitCoordsText();
     });
 
+    this.websocketClient.on(ServerToClientEvents.UNIT_DESTROYED, (payload: UnitDestroyedPayload | string) => {
+      const unitId = typeof payload === 'string' ? payload : payload?.unitId;
+      if (!unitId) {
+        return;
+      }
+
+      this.removeUnitImmediately(unitId);
+    });
+
     // Hubo un error en el servidor
-    this.websocketClient.on(ServerToClientEvents.SERVER_ERROR, (errorMessage: string) => {
+    this.websocketClient.on(ServerToClientEvents.SERVER_ERROR, (errorPayload: unknown) => {
+      const errorMessage = this.extractServerErrorMessage(errorPayload);
       console.error(`[GameScene] Server error: ${errorMessage}`);
       this.showError(errorMessage);
+
+      if (errorMessage.toLowerCase().includes('unidad no encontrada')) {
+        const unitId = this.extractUnitIdFromServerError(errorPayload)
+          ?? this.selectionManager?.getSelectedUnit()?.unitId
+          ?? null;
+
+        if (unitId) {
+          this.removeUnitImmediately(unitId);
+        } else {
+          this.selectionManager?.deselectUnit();
+          this.updateSelectedUnitCoordsText();
+        }
+      }
     });
 
     this.websocketClient.on(ServerToClientEvents.MOVE_ACCEPTED, (unitId: string) => {
@@ -444,7 +478,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.websocketClient.on(ServerToClientEvents.GAME_STATE_UPDATE, (unitPositions: IUnitPosition[]) => {
-      this.syncUnitPositions(unitPositions);
+      this.syncUnitPositions(unitPositions ?? []);
     });
 
     this.websocketClient.on(ServerToClientEvents.MUNICION_RECARGADA, (payload: any) => {
@@ -760,6 +794,20 @@ export class GameScene extends Phaser.Scene {
 
     const container = this.add.container(x, y, [sprite, label, hpText, fuelText]);
 
+    let depth = 0;
+
+    if (unit.type === "NAVAL_CARRIER") {
+      depth = 0;
+    }
+    else if (!isPlayerUnit) {
+      depth = 10;
+    }
+    else {
+      depth = 20;
+    }
+
+    container.setDepth(depth);
+
     if (unit.health <= 0) {
       sprite.setTint(0x666666);
       sprite.disableInteractive();
@@ -919,6 +967,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncUnitPositions(unitPositions: IUnitPosition[]): void {
+    const incomingIds = new Set(unitPositions.map(update => update.unitId));
+
+    // Snapshot autoritativo: si una unidad local no existe en el snapshot, se elimina.
+    Array.from(this.unitSprites.keys()).forEach(unitId => {
+      if (!incomingIds.has(unitId)) {
+        this.removeUnitImmediately(unitId);
+      }
+    });
+
+    Array.from(this.knownUnits.keys()).forEach(unitId => {
+      if (!incomingIds.has(unitId)) {
+        this.removeUnitImmediately(unitId);
+      }
+    });
+
     // Sincroniza posiciones de todas las unidades con el estado enviado por el servidor
     unitPositions.forEach(update => {
       const unit = this.knownUnits.get(update.unitId);
@@ -963,6 +1026,11 @@ export class GameScene extends Phaser.Scene {
         this.createUnitSprite(unit, update.position.x, update.position.y, this.playerUnitIds.has(update.unitId));
       }
     });
+
+    const selectedUnitId = this.selectionManager?.getSelectedUnit()?.unitId;
+    if (selectedUnitId && !incomingIds.has(selectedUnitId)) {
+      this.selectionManager?.deselectUnit();
+    }
 
     this.updateSelectedUnitCoordsText();
     this.actualizarIndicadoresRecarga();
@@ -1095,6 +1163,92 @@ export class GameScene extends Phaser.Scene {
         this.tweenCamaraSeleccion = null;
       }
     });
+  }
+
+  private removeUnitImmediately(unitId: string): void {
+    const sprite = this.unitSprites.get(unitId);
+    if (sprite) {
+      sprite.container.destroy();
+      this.unitSprites.delete(unitId);
+    }
+
+    const hpLabel = this.unitHealthLabels.get(unitId);
+    if (hpLabel) {
+      hpLabel.destroy();
+      this.unitHealthLabels.delete(unitId);
+    }
+
+    const fuelLabel = this.unitFuelLabels.get(unitId);
+    if (fuelLabel) {
+      fuelLabel.destroy();
+      this.unitFuelLabels.delete(unitId);
+    }
+
+    const indicador = this.indicadoresRecarga.get(unitId);
+    if (indicador) {
+      indicador.destroy();
+      this.indicadoresRecarga.delete(unitId);
+    }
+
+    this.ammoByUnitId.delete(unitId);
+    this.knownUnits.delete(unitId);
+    this.playerUnitIds.delete(unitId);
+
+    if (this.selectionManager?.getSelectedUnit()?.unitId === unitId) {
+      this.selectionManager.deselectUnit();
+    }
+
+    if (this.selectionManager) {
+      const actualUnits = this.selectionManager.getPlayerUnits();
+      const filteredUnits = actualUnits.filter(unit => unit.unitId !== unitId);
+      if (filteredUnits.length !== actualUnits.length) {
+        this.selectionManager.setPlayerUnits(filteredUnits);
+      }
+    }
+
+    this.updateSelectedUnitCoordsText();
+    this.actualizarIndicadoresRecarga();
+    this.actualizarEstadoBotonRecarga();
+    this.actualizarArmamentoUI();
+    this.actualizarEstadoBotonMisil();
+    this.actualizarVisibilidadEnemigos();
+    this.actualizarCapaNiebla();
+    this.emitirActualizacionDeAltura();
+  }
+
+  private extractServerErrorMessage(errorPayload: unknown): string {
+    if (typeof errorPayload === 'string') {
+      return errorPayload;
+    }
+
+    if (errorPayload && typeof errorPayload === 'object') {
+      const payloadObj = errorPayload as { message?: unknown; error?: unknown };
+      if (typeof payloadObj.message === 'string') {
+        return payloadObj.message;
+      }
+      if (typeof payloadObj.error === 'string') {
+        return payloadObj.error;
+      }
+    }
+
+    return 'Error del servidor';
+  }
+
+  private extractUnitIdFromServerError(errorPayload: unknown): string | null {
+    if (!errorPayload || typeof errorPayload !== 'object') {
+      return null;
+    }
+
+    const payloadObj = errorPayload as { unitId?: unknown; data?: { unitId?: unknown } };
+    if (typeof payloadObj.unitId === 'string' && payloadObj.unitId.length > 0) {
+      return payloadObj.unitId;
+    }
+
+    if (typeof payloadObj.data?.unitId === 'string' && payloadObj.data.unitId.length > 0) {
+      return payloadObj.data.unitId;
+    }
+
+    return null;
   }
 
   // ===== METODOS DE CONVERSION MUNDO A PANTALLA =====
@@ -3093,5 +3247,3 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 }
-
-
