@@ -1862,8 +1862,9 @@ export class GameScene extends Phaser.Scene {
 
       if (!pointer.leftButtonDown()) {return}
 
-      // Si hay objetos interactivos debajo, no es un click de mapa
-      if (gameObjects && gameObjects.length > 0) {return}
+      // Permite clickear encima de unidades enemigas para moverse a esa posicion.
+      // Solo bloquea el click de mapa cuando el objeto clickeado es una unidad propia.
+      if (this.shouldBlockMapClick(gameObjects)) {return}
 
       const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
       if (!unidadSeleccionada) {return}
@@ -1916,6 +1917,28 @@ export class GameScene extends Phaser.Scene {
         GameScene.ALTITUDE_SCROLL_REPEAT_MS
       );
     });
+  }
+
+  private shouldBlockMapClick(gameObjects: Phaser.GameObjects.GameObject[]): boolean {
+    if (!gameObjects || gameObjects.length === 0) {
+      return false;
+    }
+
+    return gameObjects.some(gameObject => this.isOwnUnitGameObject(gameObject));
+  }
+
+  private isOwnUnitGameObject(gameObject: Phaser.GameObjects.GameObject): boolean {
+    for (const [unitId, visual] of this.unitSprites.entries()) {
+      if (!this.playerUnitIds.has(unitId)) {
+        continue;
+      }
+
+      if (visual.sprite === gameObject || visual.container === gameObject || visual.label === gameObject) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private manejarClickMenuPausa(x: number, y: number): void {
