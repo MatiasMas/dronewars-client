@@ -648,6 +648,7 @@ export class GameScene extends Phaser.Scene {
       this.createUnitSprite(unit, unit.x, unit.y, false); // false = unidad enemiga
     });
 
+    this.actualizarEtiquetasUnidadesMapa();
     this.emitirActualizacionDeAltura();
     this.actualizarVisibilidadEnemigos();
     this.actualizarCapaNiebla();
@@ -685,7 +686,7 @@ export class GameScene extends Phaser.Scene {
       const fallbackBody = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
       fallbackBody.setInteractive({ useHandCursor: true });
 
-      const fallbackLabel = this.add.text(0, 0, this.getUnitLabel(unit.type), {
+      const fallbackLabel = this.add.text(0, 0, this.obtenerEtiquetaUnidadMapa(unit), {
         fontSize: '12px',
         color: '#ffffff',
         align: 'center'
@@ -739,7 +740,7 @@ export class GameScene extends Phaser.Scene {
     sprite.setScale(2.4, 2.4);
     sprite.play(animKey);
 
-    const label = this.add.text(0, -36, this.getUnitLabel(unit.type), {
+    const label = this.add.text(0, -36, this.obtenerEtiquetaUnidadMapa(unit), {
       fontSize: '12px',
       color: '#ffffff',
       align: 'center'
@@ -968,6 +969,7 @@ export class GameScene extends Phaser.Scene {
     this.actualizarEstadoBotonRecarga();
     this.actualizarArmamentoUI();
     this.actualizarEstadoBotonMisil();
+    this.actualizarEtiquetasUnidadesMapa();
     this.actualizarVisibilidadEnemigos();
     this.actualizarCapaNiebla();
 
@@ -976,9 +978,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   private aplicarLayoutConPaneles(): void {
-    const altoPanelLateral = this.obtenerAltoPanelLateral();
     const anchoMapa = Math.max(1, this.scale.width);
-    const altoMapa = Math.max(1, this.scale.height - altoPanelLateral);
+    const altoMapa = Math.max(1, this.scale.height);
     this.cameras.main.setViewport(0, 0, anchoMapa, altoMapa);
     this.sidebarNecesitaRender = true;
     this.redibujarVistaLateralInferiorFondo();
@@ -1047,14 +1048,16 @@ export class GameScene extends Phaser.Scene {
     const camara = this.cameras.main;
     const anchoPanel = this.obtenerAnchoPanelDrones();
     const anchoVisibleMapa = this.scale.width - anchoPanel;
+    const altoVisibleMapa = this.obtenerAltoMapaVisible();
     const centroVisibleX = anchoPanel + (anchoVisibleMapa / 2);
+    const centroVisibleY = altoVisibleMapa / 2;
     const scrollXDeseado = objetivoX - centroVisibleX;
-    const scrollYDeseado = objetivoY - (camara.height / 2);
+    const scrollYDeseado = objetivoY - centroVisibleY;
 
     const anchoMapa = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
     const altoMapa = GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y;
     const maxScrollX = Math.max(GameScene.MAP_MIN_X, GameScene.MAP_MIN_X + anchoMapa - camara.width);
-    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - camara.height);
+    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - altoVisibleMapa);
 
     return {
       scrollX: Phaser.Math.Clamp(scrollXDeseado, GameScene.MAP_MIN_X, maxScrollX),
@@ -1175,8 +1178,9 @@ export class GameScene extends Phaser.Scene {
     const camara = this.cameras.main;
     const anchoMapa = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
     const altoMapa = GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y;
+    const altoVisibleMapa = this.obtenerAltoMapaVisible();
     const maxScrollX = Math.max(GameScene.MAP_MIN_X, GameScene.MAP_MIN_X + anchoMapa - camara.width);
-    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - camara.height);
+    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - altoVisibleMapa);
 
     const nuevoScrollX = Phaser.Math.Clamp(camara.scrollX + movimientoX, GameScene.MAP_MIN_X, maxScrollX);
     const nuevoScrollY = Phaser.Math.Clamp(camara.scrollY + movimientoY, GameScene.MAP_MIN_Y, maxScrollY);
@@ -1247,14 +1251,55 @@ export class GameScene extends Phaser.Scene {
     return colors[type] || 0xffffff;
   }
 
-  private getUnitLabel(type: string): string {
-    const labels: { [key: string]: string } = {
-      'AERIAL_DRONE': 'A.D',
-      'NAVAL_DRONE': 'N.D',
-      'AERIAL_CARRIER': 'A.C',
-      'NAVAL_CARRIER': 'N.C'
-    };
-    return labels[type] || '?';
+  private actualizarEtiquetasUnidadesMapa(): void {
+    const etiquetasPropias = this.obtenerEtiquetasUnidadesPropiasMapa();
+    this.unitSprites.forEach((visual, unitId) => {
+      const unidad = this.knownUnits.get(unitId);
+      if (!unidad) {
+        return;
+      }
+      visual.label.setText(this.obtenerEtiquetaUnidadMapa(unidad, etiquetasPropias));
+    });
+  }
+
+  private obtenerEtiquetaUnidadMapa(unidad: IUnit, etiquetasPropias?: Map<string, string>): string {
+    if (this.esPortadrones(unidad)) {
+      return 'Portadron';
+    }
+    if (!this.esUnidadDron(unidad)) {
+      return 'Unidad';
+    }
+    if (!this.playerUnitIds.has(unidad.unitId)) {
+      return 'Dron';
+    }
+
+    const etiquetas = etiquetasPropias ?? this.obtenerEtiquetasUnidadesPropiasMapa();
+    return etiquetas.get(unidad.unitId) ?? 'Dron';
+  }
+
+  private obtenerEtiquetasUnidadesPropiasMapa(): Map<string, string> {
+    const unidadesPropias = Array.from(this.knownUnits.values())
+      .filter(unidad => this.playerUnitIds.has(unidad.unitId) && (this.esUnidadDron(unidad) || this.esPortadrones(unidad)))
+      .sort((a, b) => {
+        const prioridad = this.obtenerPrioridadSidebar(a.type) - this.obtenerPrioridadSidebar(b.type);
+        if (prioridad !== 0) {
+          return prioridad;
+        }
+        return a.unitId.localeCompare(b.unitId);
+      });
+
+    const etiquetas = new Map<string, string>();
+    let numeroDron = 1;
+    unidadesPropias.forEach(unidad => {
+      if (this.esPortadrones(unidad)) {
+        etiquetas.set(unidad.unitId, 'Portadron');
+      } else {
+        etiquetas.set(unidad.unitId, `Dron ${numeroDron}`);
+        numeroDron += 1;
+      }
+    });
+
+    return etiquetas;
   }
 
   private showError(message: string): void {
@@ -1299,7 +1344,7 @@ export class GameScene extends Phaser.Scene {
 
     this.add.text(
       20,
-      this.cameras.main.height - 40,
+      this.obtenerAltoMapaVisible() - 40,
       'Connected to the server',
       {fontSize: '12px', color: '#00ff00'}
     ).setScrollFactor(0).setDepth(100);
@@ -1503,7 +1548,7 @@ export class GameScene extends Phaser.Scene {
       this.statsDroneBody.setStrokeStyle(2, bordeColor, 1);
     }
     if (this.statsDroneLabel) {
-      this.statsDroneLabel.setText(this.getUnitLabel(unit.type));
+      this.statsDroneLabel.setText(this.obtenerEtiquetaUnidadMapa(unit));
       this.statsDroneLabel.setColor(unit.health > 0 ? '#f9fafb' : '#6b7280');
     }
 
@@ -2857,7 +2902,7 @@ export class GameScene extends Phaser.Scene {
     const panelW = this.scale.width;
     const panelH = this.obtenerAltoPanelLateral();
     const padding = GameScene.PANEL_INFERIOR_PADDING;
-    const etiquetasPropias = this.obtenerEtiquetasSidebarPorUnidad(
+    const etiquetasPropias = this.obtenerEtiquetasVistaLateralInferiorPorUnidad(
       this.vistaLateralInferiorUnidades
         .filter(unidad => unidad.isPlayerUnit && this.esUnidadRenderizableSidebar(unidad.type))
         .sort((a, b) => {
@@ -2890,7 +2935,7 @@ export class GameScene extends Phaser.Scene {
         : this.add.circle(0, 0, 6, color);
       figuraUnidad.setStrokeStyle(esPortadron ? 2 : 1, unidad.isPlayerUnit ? 0x00ff88 : 0xff4444);
 
-      const label = this.add.text(0, -14, unidad.isPlayerUnit ? (etiquetasPropias.get(unidad.unitId) ?? 'Dron') : 'Enemigo', {
+      const label = this.add.text(0, -14, unidad.isPlayerUnit ? (etiquetasPropias.get(unidad.unitId) ?? '?') : 'E', {
         fontSize: '9px',
         color: unidad.health <= 0 ? '#666666' : '#ffffff'
       }).setOrigin(0.5);
@@ -2899,6 +2944,22 @@ export class GameScene extends Phaser.Scene {
       container.setScrollFactor(0).setDepth(119);
       this.vistaLateralInferiorPuntos.set(unidad.unitId, container);
     });
+  }
+
+  private obtenerEtiquetasVistaLateralInferiorPorUnidad(unidades: ISideViewUnit[]): Map<string, string> {
+    const etiquetas = new Map<string, string>();
+    let numeroDron = 1;
+
+    unidades.forEach(unidad => {
+      if (this.esPortadronSidebar(unidad.type)) {
+        etiquetas.set(unidad.unitId, 'P');
+        return;
+      }
+      etiquetas.set(unidad.unitId, `${numeroDron}`);
+      numeroDron += 1;
+    });
+
+    return etiquetas;
   }
 
   private xVistaLateralInferiorAPantalla(worldX: number, panelW: number, padding: number): number {
