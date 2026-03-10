@@ -39,7 +39,7 @@ export class AnimationManager {
       "assets/drone/chinese/Dron_Chino_Movimiento_Lateral.png",
       {
         frameWidth: 48,
-        frameHeight: 18,
+        frameHeight: 48,
       }
     );
 
