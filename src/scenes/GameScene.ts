@@ -34,6 +34,7 @@ type UnitDestroyedPayload = {
 
 export class GameScene extends Phaser.Scene {
   private websocketClient: WebSocketClient | null = null;
+  private statsDroneSprite!: Phaser.GameObjects.Sprite;
   private soundManager!: SoundManager;
   private highScoreManager: HighScoreManager = new HighScoreManager();
   private playerScore: number = 0;
@@ -71,6 +72,7 @@ export class GameScene extends Phaser.Scene {
   private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
   private armamentoEnemyText: Phaser.GameObjects.Text | null = null;
   private ammoByUnitId: Map<string, number> = new Map();
+  private carrierAmmoByUnitId: Map<string, number> = new Map();
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
   private fondoBotonRecarga: Phaser.GameObjects.Rectangle | null = null;
@@ -139,6 +141,8 @@ export class GameScene extends Phaser.Scene {
   private static readonly RANGO_DISPARO_MISIL = 30;
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
+  private static readonly AERIAL_CARRIER_MAX_AMMO = 30;
+  private static readonly NAVAL_CARRIER_MAX_AMMO = 60;
   private static readonly CUENTA_REGRESIVA_PORTADRONES_MS = 2 * 60 * 1000;
 
   //Visibilidad
@@ -1195,6 +1199,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.ammoByUnitId.delete(unitId);
+    this.carrierAmmoByUnitId.delete(unitId);
     this.knownUnits.delete(unitId);
     this.playerUnitIds.delete(unitId);
 
@@ -1548,6 +1553,108 @@ export class GameScene extends Phaser.Scene {
     this.avisoPausaContenedor.setVisible(this.partidaPausada);
   }
 
+  private getLateralIdleAnimation(unit: IUnit): string {
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    const esDron = this.esUnidadDron(unit);
+    const esCarrier = this.esPortadrones(unit);
+
+    if (esDron) {
+      if (esJugadorUno) {
+        return AnimationManager.KEYS.droneChinoMLateral;
+      } else {
+        return AnimationManager.KEYS.dronePortuguesMLateral;
+      }
+    }
+
+    if (esCarrier) {
+      if (esJugadorUno) {
+        return AnimationManager.KEYS.carrierChinoMLateral;
+      } else {
+        return AnimationManager.KEYS.carrierPortuguesMLateral;
+      }
+    }
+
+    return "";
+  }
+
+  private playPanelAttackAnimation(unit: IUnit): void {
+
+    const selectedUnit = this.selectionManager?.getSelectedUnit();
+    if (!selectedUnit || selectedUnit.unitId !== unit.unitId) {
+      return;
+    }
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    let animKey = "";
+    if (this.esUnidadDron(unit)) {
+
+      if (esJugadorUno) {
+        animKey = AnimationManager.KEYS.droneChinoBmLateral;
+      } else {
+        animKey = AnimationManager.KEYS.dronePortuguesMsLateral;
+      }
+
+    }
+
+    if (animKey) {
+
+      this.statsDroneSprite.play(animKey, true);
+
+      this.statsDroneSprite.once(
+          Phaser.Animations.Events.ANIMATION_COMPLETE,
+          () => {
+            this.statsDroneSprite.play(this.getLateralIdleAnimation(unit), true);
+          }
+      );
+
+    }
+
+  }
+
+  private playPanelDestroyAnimation(unit: IUnit): void {
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+
+    let animKey = "";
+
+    if (this.esUnidadDron(unit)) {
+      animKey = esJugadorUno
+          ? AnimationManager.KEYS.droneChinoDLateral
+          : AnimationManager.KEYS.dronePortuguesDLateral;
+    }
+
+    if (this.esPortadrones(unit)) {
+      animKey = esJugadorUno
+          ? AnimationManager.KEYS.carrierChinoDLateral
+          : AnimationManager.KEYS.carrierPortuguesDLateral;
+    }
+
+    if (animKey) {
+      this.statsDroneSprite.play(animKey);
+    }
+    this.statsDroneSprite.play(animKey);
+
+    this.statsDroneSprite.once(
+        Phaser.Animations.Events.ANIMATION_COMPLETE,
+        () => {
+          this.statsDroneSprite.setVisible(false);
+        }
+    );
+  }
+
+  private actualizarPanelAnimacion(unit: IUnit): void {
+
+    if (!this.statsDroneSprite) return;
+
+    const animKey = this.getLateralIdleAnimation(unit);
+
+    if (animKey) {
+      this.statsDroneSprite.setVisible(true);
+      this.statsDroneSprite.play(animKey, true);
+    }
+  }
+
   private crearPanelEstadisticasDron(): void {
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
@@ -1556,7 +1663,7 @@ export class GameScene extends Phaser.Scene {
     const panelWidth = 300;
     const panelHeight = Math.max(110, bottomPanelH - 10);
     const offsetRight = 0;
-    const offsetBottom = 0;
+    const offsetBottom = 70;
 
     const panelX = w - panelWidth / 2 - offsetRight;
     const panelY = h - bottomPanelH - offsetBottom;
@@ -1588,8 +1695,9 @@ export class GameScene extends Phaser.Scene {
     const imagenCenterX = 0;
     const imagenY = etiquetaY + 28;
 
-    const cuerpoDron = this.add.rectangle(imagenCenterX, imagenY, 64, 40, 0x374151);
-    cuerpoDron.setStrokeStyle(2, 0x6b7280, 1);
+    const droneSprite = this.add.sprite(imagenCenterX, imagenY, "droneChinoMovLateral");
+    droneSprite.setScale(1.2);
+    droneSprite.setVisible(false);
 
     // 3) Estadísticas debajo de la imagen
     const textoBaseX = -panelWidth / 2 + 16;
@@ -1619,8 +1727,8 @@ export class GameScene extends Phaser.Scene {
     container.add([
       fondo,
       titulo,
-      cuerpoDron,
       etiquetaDron,
+      droneSprite,
       this.selectedUnitCoordsText,
       this.selectedUnitArmamentoText,
       this.selectedUnitFuelText,
@@ -1631,7 +1739,7 @@ export class GameScene extends Phaser.Scene {
     container.setDepth(100);
 
     this.statsPanelContainer = container;
-    this.statsDroneBody = cuerpoDron;
+    this.statsDroneSprite = droneSprite;
     this.statsDroneLabel = etiquetaDron;
 
     this.updateSelectedUnitCoordsText();
@@ -1711,6 +1819,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateSelectedUnitArmamentoText();
+    this.actualizarPanelAnimacion(unit);
   }
 
   private actualizarArmamentoUI(): void {
@@ -1729,6 +1838,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+    if (this.esPortadrones(unit)) {
+      const etiqueta = unit.type === UnitType.AERIAL_CARRIER ? 'Bombas' : 'Misiles';
+      const max = this.getCarrierMaxAmmo(unit);
+      const actual = this.carrierAmmoByUnitId.get(unit.unitId) ?? max;
+      this.selectedUnitArmamentoText.setText(`Armamento: ${etiqueta} ${actual}/${max}`);
+      return;
+    }
+
     if (!this.esUnidadDron(unit)) {
       this.selectedUnitArmamentoText.setText('Armamento: N/A');
       return;
@@ -1790,7 +1907,14 @@ export class GameScene extends Phaser.Scene {
 
   private sincronizarMunicionInicial(units: IUnit[]): void {
     const siguiente = new Map<string, number>();
+    const siguienteCarrierAmmo = new Map<string, number>();
     units.forEach(unit => {
+      if (this.esPortadrones(unit)) {
+        const max = this.getCarrierMaxAmmo(unit);
+        const inicial = this.obtenerCarrierAmmoDesdeUnidad(unit, max);
+        siguienteCarrierAmmo.set(unit.unitId, inicial);
+        return;
+      }
       if (!this.esUnidadDron(unit)) {
         return;
       }
@@ -1799,6 +1923,22 @@ export class GameScene extends Phaser.Scene {
       siguiente.set(unit.unitId, maxPorDron);
     });
     this.ammoByUnitId = siguiente;
+    this.carrierAmmoByUnitId = siguienteCarrierAmmo;
+  }
+
+  private getCarrierMaxAmmo(unit: IUnit): number {
+    if (unit.type === UnitType.AERIAL_CARRIER) {
+      return GameScene.AERIAL_CARRIER_MAX_AMMO;
+    }
+    if (unit.type === UnitType.NAVAL_CARRIER) {
+      return GameScene.NAVAL_CARRIER_MAX_AMMO;
+    }
+    return 0;
+  }
+
+  private obtenerCarrierAmmoDesdeUnidad(unit: IUnit, fallback: number): number {
+    const raw = unit.municionDisponible;
+    return typeof raw === 'number' ? Phaser.Math.Clamp(raw, 0, fallback) : fallback;
   }
 
   private procesarMunicionRecargada(payload: any): void {
@@ -1814,11 +1954,19 @@ export class GameScene extends Phaser.Scene {
 
     const esJugadorUno = this.esUnidadDeJugador1(unitId);
     const maxPorDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+    const previo = this.ammoByUnitId.get(unitId) ?? 0;
 
     let nuevo = typeof payload?.ammo === 'number' ? payload.ammo : maxPorDron;
     nuevo = Phaser.Math.Clamp(nuevo, 0, maxPorDron);
 
     this.ammoByUnitId.set(unitId, nuevo);
+    const recargado = Math.max(0, nuevo - previo);
+    const carrierAmmo = this.extraerCarrierAmmoDesdePayload(payload);
+    if (typeof carrierAmmo === 'number') {
+      this.setCarrierAmmoByTeam(esJugadorUno, carrierAmmo);
+    } else if (recargado > 0) {
+      this.consumeCarrierAmmoByTeam(esJugadorUno, recargado);
+    }
     this.actualizarArmamentoUI();
 
     if (typeof payload?.combustible === 'number') {
@@ -1828,6 +1976,53 @@ export class GameScene extends Phaser.Scene {
         fuelLabel.setText(`FUEL:${Math.round(payload.combustible)}`);
       }
     }
+  }
+
+  private extraerCarrierAmmoDesdePayload(payload: any): number | null {
+    const raw = payload?.municionDisponible;
+    return typeof raw === 'number' ? raw : null;
+  }
+
+  private getCarrierIdByTeam(esJugadorUno: boolean): string | null {
+    for (const unit of this.knownUnits.values()) {
+      if (!this.esPortadrones(unit)) {
+        continue;
+      }
+      if (this.esUnidadDeJugador1(unit.unitId) === esJugadorUno) {
+        return unit.unitId;
+      }
+    }
+    return null;
+  }
+
+  private setCarrierAmmoByTeam(esJugadorUno: boolean, ammo: number): void {
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(ammo, 0, max));
+  }
+
+  private consumeCarrierAmmoByTeam(esJugadorUno: boolean, amount: number): void {
+    if (amount <= 0) {
+      return;
+    }
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    const actual = this.carrierAmmoByUnitId.get(carrierId) ?? max;
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(actual - amount, 0, max));
   }
 
   private setupPointerControls(): void {
@@ -2147,6 +2342,15 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => ondaExplosion.destroy()
     });
 
+    const idUnidad = (datosExplosion as any).unidadAtaqueId ?? (datosExplosion as any).attackerUnitId;
+
+    if (idUnidad) {
+      const unit = this.knownUnits.get(idUnidad);
+      if (unit) {
+        this.playPanelAttackAnimation(unit);
+      }
+    }
+
     datosExplosion.impactedUnits.forEach((unidadImpactada) => {
       // Sincroniza HP en el mapa local antes de pintar.
       const unidadActual = this.knownUnits.get(unidadImpactada.unitId);
@@ -2172,6 +2376,10 @@ export class GameScene extends Phaser.Scene {
 
         if (unidadImpactada.health <= 0) {
           // Si queda en 0, la eliminamos del mapa.
+          const unit = this.knownUnits.get(unidadImpactada.unitId);
+          if (unit) {
+            this.playPanelDestroyAnimation(unit);
+          }
           this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'bomba');
         }
       }
@@ -2197,6 +2405,11 @@ export class GameScene extends Phaser.Scene {
         : Phaser.Math.Clamp(actual - 1, 0, maxPorDron);
       this.ammoByUnitId.set(idUnidad, nuevo);
       this.actualizarArmamentoUI();
+      const unit = this.knownUnits.get(idUnidad);
+      if (unit) {
+        this.playPanelAttackAnimation(unit);
+      }
+
     }
 
     // La animacion real la manda el servidor con MISIL_ACTUALIZADO.
@@ -2258,6 +2471,10 @@ export class GameScene extends Phaser.Scene {
 
         if (unidadImpactada.health <= 0) {
           // Si queda en 0, la eliminamos del mapa.
+          const unit = this.knownUnits.get(unidadImpactada.unitId);
+          if (unit) {
+            this.playPanelDestroyAnimation(unit);
+          }
           this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'misil');
         }
       }
@@ -2334,6 +2551,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.knownUnits.delete(unidadId);
+    this.carrierAmmoByUnitId.delete(unidadId);
     this.playerUnitIds.delete(unidadId);
 
     if (this.selectionManager?.getSelectedUnit()?.unitId === unidadId) {
@@ -2528,6 +2746,16 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const portadrones = this.knownUnits.get(portadronesId);
+    if (portadrones && this.esPortadrones(portadrones)) {
+      const max = this.getCarrierMaxAmmo(portadrones);
+      const actual = this.carrierAmmoByUnitId.get(portadronesId) ?? max;
+      if (actual <= 0) {
+        this.showError('El portadrones no tiene armamento disponible');
+        return;
+      }
+    }
+
     // Evento para recarga (el servidor debe validar proximidad y estado)
     this.websocketClient.solicitarRecargaMunicion(unidadSeleccionada.unitId, portadronesId);
   }
@@ -2550,7 +2778,19 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    return this.buscarPortadronesCercanoId(unidadSeleccionada) !== null;
+    const portadronesId = this.buscarPortadronesCercanoId(unidadSeleccionada);
+    if (!portadronesId) {
+      return false;
+    }
+
+    const portadrones = this.knownUnits.get(portadronesId);
+    if (!portadrones || !this.esPortadrones(portadrones)) {
+      return false;
+    }
+
+    const max = this.getCarrierMaxAmmo(portadrones);
+    const actual = this.carrierAmmoByUnitId.get(portadronesId) ?? max;
+    return actual > 0;
   }
 
   private buscarPortadronesCercanoId(dron: IUnit): string | null {
