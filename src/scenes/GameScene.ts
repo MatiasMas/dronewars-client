@@ -733,18 +733,21 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(fallbackLabel);
 
       const hpTextFallback = this.add.text(0, 20, `HP:${unit.health}`, {
         fontSize: '11px',
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(hpTextFallback);
 
       const fuelTextFallback = this.add.text(0, 32, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
         fontSize: '11px',
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(fuelTextFallback);
 
       const fallbackContainer = this.add.container(x, y, [fallbackBody, fallbackLabel, hpTextFallback, fuelTextFallback]);
 
@@ -787,18 +790,21 @@ export class GameScene extends Phaser.Scene {
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(label);
 
     const hpText = this.add.text(0, 28, `HP:${unit.health}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(hpText);
 
     const fuelText = this.add.text(0, 40, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(fuelText);
 
     const container = this.add.container(x, y, [sprite, label, hpText, fuelText]);
 
@@ -1501,7 +1507,7 @@ export class GameScene extends Phaser.Scene {
     this.add.text(
       20,
       70,
-      'WASD: mover mapa libre | Flechas: mover unidad | Q/E y rueda: altura',
+      'WASD: mover mapa libre | Click izquierdo: mover unidad | Q/E y rueda: altura',
       {fontSize: '14px', color: '#cccccc'}
     ).setScrollFactor(0).setDepth(100);
 
@@ -1690,6 +1696,7 @@ export class GameScene extends Phaser.Scene {
       '-',
       { fontSize: '12px', color: '#e5e7eb', align: 'center' }
     ).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(etiquetaDron);
 
     // 2) "Imagen" del dron justo debajo de la etiqueta
     const imagenCenterX = 0;
@@ -1716,6 +1723,7 @@ export class GameScene extends Phaser.Scene {
       'Armamento: -',
       { fontSize: '12px', color: '#d1d5db' }
     ).setOrigin(0, 0);
+    this.aplicarFondoSuaveTexto(this.selectedUnitArmamentoText);
 
     this.selectedUnitFuelText = this.add.text(
       textoBaseX,
@@ -3480,6 +3488,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     return unidadesConVision;
+  }
+
+  private aplicarFondoSuaveTexto(texto: Phaser.GameObjects.Text): void {
+    texto.setBackgroundColor('rgba(80,80,80,0.35)');
+    texto.setPadding(2, 1, 2, 1);
   }
 
   private esVisibleParaDronesPropios(unidadEnemiga: IUnit): boolean {
