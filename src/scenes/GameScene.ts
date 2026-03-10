@@ -72,6 +72,7 @@ export class GameScene extends Phaser.Scene {
   private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
   private armamentoEnemyText: Phaser.GameObjects.Text | null = null;
   private ammoByUnitId: Map<string, number> = new Map();
+  private carrierAmmoByUnitId: Map<string, number> = new Map();
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
   private fondoBotonRecarga: Phaser.GameObjects.Rectangle | null = null;
@@ -140,6 +141,8 @@ export class GameScene extends Phaser.Scene {
   private static readonly RANGO_DISPARO_MISIL = 30;
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
+  private static readonly AERIAL_CARRIER_MAX_AMMO = 30;
+  private static readonly NAVAL_CARRIER_MAX_AMMO = 60;
   private static readonly CUENTA_REGRESIVA_PORTADRONES_MS = 2 * 60 * 1000;
 
   //Visibilidad
@@ -1196,6 +1199,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.ammoByUnitId.delete(unitId);
+    this.carrierAmmoByUnitId.delete(unitId);
     this.knownUnits.delete(unitId);
     this.playerUnitIds.delete(unitId);
 
@@ -1659,7 +1663,7 @@ export class GameScene extends Phaser.Scene {
     const panelWidth = 300;
     const panelHeight = Math.max(110, bottomPanelH - 10);
     const offsetRight = 0;
-    const offsetBottom = 0;
+    const offsetBottom = 70;
 
     const panelX = w - panelWidth / 2 - offsetRight;
     const panelY = h - bottomPanelH - offsetBottom;
@@ -1834,6 +1838,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+    if (this.esPortadrones(unit)) {
+      const etiqueta = unit.type === UnitType.AERIAL_CARRIER ? 'Bombas' : 'Misiles';
+      const max = this.getCarrierMaxAmmo(unit);
+      const actual = this.carrierAmmoByUnitId.get(unit.unitId) ?? max;
+      this.selectedUnitArmamentoText.setText(`Armamento: ${etiqueta} ${actual}/${max}`);
+      return;
+    }
+
     if (!this.esUnidadDron(unit)) {
       this.selectedUnitArmamentoText.setText('Armamento: N/A');
       return;
@@ -1895,7 +1907,14 @@ export class GameScene extends Phaser.Scene {
 
   private sincronizarMunicionInicial(units: IUnit[]): void {
     const siguiente = new Map<string, number>();
+    const siguienteCarrierAmmo = new Map<string, number>();
     units.forEach(unit => {
+      if (this.esPortadrones(unit)) {
+        const max = this.getCarrierMaxAmmo(unit);
+        const inicial = this.obtenerCarrierAmmoDesdeUnidad(unit, max);
+        siguienteCarrierAmmo.set(unit.unitId, inicial);
+        return;
+      }
       if (!this.esUnidadDron(unit)) {
         return;
       }
@@ -1904,6 +1923,22 @@ export class GameScene extends Phaser.Scene {
       siguiente.set(unit.unitId, maxPorDron);
     });
     this.ammoByUnitId = siguiente;
+    this.carrierAmmoByUnitId = siguienteCarrierAmmo;
+  }
+
+  private getCarrierMaxAmmo(unit: IUnit): number {
+    if (unit.type === UnitType.AERIAL_CARRIER) {
+      return GameScene.AERIAL_CARRIER_MAX_AMMO;
+    }
+    if (unit.type === UnitType.NAVAL_CARRIER) {
+      return GameScene.NAVAL_CARRIER_MAX_AMMO;
+    }
+    return 0;
+  }
+
+  private obtenerCarrierAmmoDesdeUnidad(unit: IUnit, fallback: number): number {
+    const raw = unit.municionDisponible;
+    return typeof raw === 'number' ? Phaser.Math.Clamp(raw, 0, fallback) : fallback;
   }
 
   private procesarMunicionRecargada(payload: any): void {
@@ -1919,11 +1954,19 @@ export class GameScene extends Phaser.Scene {
 
     const esJugadorUno = this.esUnidadDeJugador1(unitId);
     const maxPorDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+    const previo = this.ammoByUnitId.get(unitId) ?? 0;
 
     let nuevo = typeof payload?.ammo === 'number' ? payload.ammo : maxPorDron;
     nuevo = Phaser.Math.Clamp(nuevo, 0, maxPorDron);
 
     this.ammoByUnitId.set(unitId, nuevo);
+    const recargado = Math.max(0, nuevo - previo);
+    const carrierAmmo = this.extraerCarrierAmmoDesdePayload(payload);
+    if (typeof carrierAmmo === 'number') {
+      this.setCarrierAmmoByTeam(esJugadorUno, carrierAmmo);
+    } else if (recargado > 0) {
+      this.consumeCarrierAmmoByTeam(esJugadorUno, recargado);
+    }
     this.actualizarArmamentoUI();
 
     if (typeof payload?.combustible === 'number') {
@@ -1933,6 +1976,53 @@ export class GameScene extends Phaser.Scene {
         fuelLabel.setText(`FUEL:${Math.round(payload.combustible)}`);
       }
     }
+  }
+
+  private extraerCarrierAmmoDesdePayload(payload: any): number | null {
+    const raw = payload?.municionDisponible;
+    return typeof raw === 'number' ? raw : null;
+  }
+
+  private getCarrierIdByTeam(esJugadorUno: boolean): string | null {
+    for (const unit of this.knownUnits.values()) {
+      if (!this.esPortadrones(unit)) {
+        continue;
+      }
+      if (this.esUnidadDeJugador1(unit.unitId) === esJugadorUno) {
+        return unit.unitId;
+      }
+    }
+    return null;
+  }
+
+  private setCarrierAmmoByTeam(esJugadorUno: boolean, ammo: number): void {
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(ammo, 0, max));
+  }
+
+  private consumeCarrierAmmoByTeam(esJugadorUno: boolean, amount: number): void {
+    if (amount <= 0) {
+      return;
+    }
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    const actual = this.carrierAmmoByUnitId.get(carrierId) ?? max;
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(actual - amount, 0, max));
   }
 
   private setupPointerControls(): void {
@@ -2461,6 +2551,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.knownUnits.delete(unidadId);
+    this.carrierAmmoByUnitId.delete(unidadId);
     this.playerUnitIds.delete(unidadId);
 
     if (this.selectionManager?.getSelectedUnit()?.unitId === unidadId) {
@@ -2655,6 +2746,16 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const portadrones = this.knownUnits.get(portadronesId);
+    if (portadrones && this.esPortadrones(portadrones)) {
+      const max = this.getCarrierMaxAmmo(portadrones);
+      const actual = this.carrierAmmoByUnitId.get(portadronesId) ?? max;
+      if (actual <= 0) {
+        this.showError('El portadrones no tiene armamento disponible');
+        return;
+      }
+    }
+
     // Evento para recarga (el servidor debe validar proximidad y estado)
     this.websocketClient.solicitarRecargaMunicion(unidadSeleccionada.unitId, portadronesId);
   }
@@ -2677,7 +2778,19 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    return this.buscarPortadronesCercanoId(unidadSeleccionada) !== null;
+    const portadronesId = this.buscarPortadronesCercanoId(unidadSeleccionada);
+    if (!portadronesId) {
+      return false;
+    }
+
+    const portadrones = this.knownUnits.get(portadronesId);
+    if (!portadrones || !this.esPortadrones(portadrones)) {
+      return false;
+    }
+
+    const max = this.getCarrierMaxAmmo(portadrones);
+    const actual = this.carrierAmmoByUnitId.get(portadronesId) ?? max;
+    return actual > 0;
   }
 
   private buscarPortadronesCercanoId(dron: IUnit): string | null {
