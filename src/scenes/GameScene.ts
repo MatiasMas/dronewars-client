@@ -34,6 +34,7 @@ type UnitDestroyedPayload = {
 
 export class GameScene extends Phaser.Scene {
   private websocketClient: WebSocketClient | null = null;
+  private statsDroneSprite!: Phaser.GameObjects.Sprite;
   private soundManager!: SoundManager;
   private highScoreManager: HighScoreManager = new HighScoreManager();
   private playerScore: number = 0;
@@ -1548,6 +1549,108 @@ export class GameScene extends Phaser.Scene {
     this.avisoPausaContenedor.setVisible(this.partidaPausada);
   }
 
+  private getLateralIdleAnimation(unit: IUnit): string {
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    const esDron = this.esUnidadDron(unit);
+    const esCarrier = this.esPortadrones(unit);
+
+    if (esDron) {
+      if (esJugadorUno) {
+        return AnimationManager.KEYS.droneChinoMLateral;
+      } else {
+        return AnimationManager.KEYS.dronePortuguesMLateral;
+      }
+    }
+
+    if (esCarrier) {
+      if (esJugadorUno) {
+        return AnimationManager.KEYS.carrierChinoMLateral;
+      } else {
+        return AnimationManager.KEYS.carrierPortuguesMLateral;
+      }
+    }
+
+    return "";
+  }
+
+  private playPanelAttackAnimation(unit: IUnit): void {
+
+    const selectedUnit = this.selectionManager?.getSelectedUnit();
+    if (!selectedUnit || selectedUnit.unitId !== unit.unitId) {
+      return;
+    }
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    let animKey = "";
+    if (this.esUnidadDron(unit)) {
+
+      if (esJugadorUno) {
+        animKey = AnimationManager.KEYS.droneChinoBmLateral;
+      } else {
+        animKey = AnimationManager.KEYS.dronePortuguesMsLateral;
+      }
+
+    }
+
+    if (animKey) {
+
+      this.statsDroneSprite.play(animKey, true);
+
+      this.statsDroneSprite.once(
+          Phaser.Animations.Events.ANIMATION_COMPLETE,
+          () => {
+            this.statsDroneSprite.play(this.getLateralIdleAnimation(unit), true);
+          }
+      );
+
+    }
+
+  }
+
+  private playPanelDestroyAnimation(unit: IUnit): void {
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+
+    let animKey = "";
+
+    if (this.esUnidadDron(unit)) {
+      animKey = esJugadorUno
+          ? AnimationManager.KEYS.droneChinoDLateral
+          : AnimationManager.KEYS.dronePortuguesDLateral;
+    }
+
+    if (this.esPortadrones(unit)) {
+      animKey = esJugadorUno
+          ? AnimationManager.KEYS.carrierChinoDLateral
+          : AnimationManager.KEYS.carrierPortuguesDLateral;
+    }
+
+    if (animKey) {
+      this.statsDroneSprite.play(animKey);
+    }
+    this.statsDroneSprite.play(animKey);
+
+    this.statsDroneSprite.once(
+        Phaser.Animations.Events.ANIMATION_COMPLETE,
+        () => {
+          this.statsDroneSprite.setVisible(false);
+        }
+    );
+  }
+
+  private actualizarPanelAnimacion(unit: IUnit): void {
+
+    if (!this.statsDroneSprite) return;
+
+    const animKey = this.getLateralIdleAnimation(unit);
+
+    if (animKey) {
+      this.statsDroneSprite.setVisible(true);
+      this.statsDroneSprite.play(animKey, true);
+    }
+  }
+
   private crearPanelEstadisticasDron(): void {
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
@@ -1588,8 +1691,9 @@ export class GameScene extends Phaser.Scene {
     const imagenCenterX = 0;
     const imagenY = etiquetaY + 28;
 
-    const cuerpoDron = this.add.rectangle(imagenCenterX, imagenY, 64, 40, 0x374151);
-    cuerpoDron.setStrokeStyle(2, 0x6b7280, 1);
+    const droneSprite = this.add.sprite(imagenCenterX, imagenY, "droneChinoMovLateral");
+    droneSprite.setScale(1.2);
+    droneSprite.setVisible(false);
 
     // 3) Estadísticas debajo de la imagen
     const textoBaseX = -panelWidth / 2 + 16;
@@ -1619,8 +1723,8 @@ export class GameScene extends Phaser.Scene {
     container.add([
       fondo,
       titulo,
-      cuerpoDron,
       etiquetaDron,
+      droneSprite,
       this.selectedUnitCoordsText,
       this.selectedUnitArmamentoText,
       this.selectedUnitFuelText,
@@ -1631,7 +1735,7 @@ export class GameScene extends Phaser.Scene {
     container.setDepth(100);
 
     this.statsPanelContainer = container;
-    this.statsDroneBody = cuerpoDron;
+    this.statsDroneSprite = droneSprite;
     this.statsDroneLabel = etiquetaDron;
 
     this.updateSelectedUnitCoordsText();
@@ -1711,6 +1815,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.updateSelectedUnitArmamentoText();
+    this.actualizarPanelAnimacion(unit);
   }
 
   private actualizarArmamentoUI(): void {
@@ -2147,6 +2252,15 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => ondaExplosion.destroy()
     });
 
+    const idUnidad = (datosExplosion as any).unidadAtaqueId ?? (datosExplosion as any).attackerUnitId;
+
+    if (idUnidad) {
+      const unit = this.knownUnits.get(idUnidad);
+      if (unit) {
+        this.playPanelAttackAnimation(unit);
+      }
+    }
+
     datosExplosion.impactedUnits.forEach((unidadImpactada) => {
       // Sincroniza HP en el mapa local antes de pintar.
       const unidadActual = this.knownUnits.get(unidadImpactada.unitId);
@@ -2172,6 +2286,10 @@ export class GameScene extends Phaser.Scene {
 
         if (unidadImpactada.health <= 0) {
           // Si queda en 0, la eliminamos del mapa.
+          const unit = this.knownUnits.get(unidadImpactada.unitId);
+          if (unit) {
+            this.playPanelDestroyAnimation(unit);
+          }
           this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'bomba');
         }
       }
@@ -2197,6 +2315,11 @@ export class GameScene extends Phaser.Scene {
         : Phaser.Math.Clamp(actual - 1, 0, maxPorDron);
       this.ammoByUnitId.set(idUnidad, nuevo);
       this.actualizarArmamentoUI();
+      const unit = this.knownUnits.get(idUnidad);
+      if (unit) {
+        this.playPanelAttackAnimation(unit);
+      }
+
     }
 
     // La animacion real la manda el servidor con MISIL_ACTUALIZADO.
@@ -2258,6 +2381,10 @@ export class GameScene extends Phaser.Scene {
 
         if (unidadImpactada.health <= 0) {
           // Si queda en 0, la eliminamos del mapa.
+          const unit = this.knownUnits.get(unidadImpactada.unitId);
+          if (unit) {
+            this.playPanelDestroyAnimation(unit);
+          }
           this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'misil');
         }
       }
