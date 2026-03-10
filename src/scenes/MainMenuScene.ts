@@ -21,13 +21,16 @@ export class MainMenuScene extends Phaser.Scene {
             color: "#a5b4fc",
         }).setOrigin(0.5);
 
-        const startY = height * 0.38;
-        const gap = 64;
+        const startY = height * 0.34;
+        const gap = 58;
 
         this.createButton("Unirse a una partida", startY + gap * 0, () => this.scene.start("JoinGameScene"));
         this.createButton("Cargar partida guardada", startY + gap * 1, () => this.scene.start("LoadGameScene"));
         this.createButton("Consultar ranking", startY + gap * 2, () => this.scene.start("RankingScene"));
-        this.createButton("Salir del juego", startY + gap * 3, () => this.exitGame());
+        this.createButton("Instrucciones", startY + gap * 3, () =>
+            this.scene.start("InstructionsScene", { source: "main-menu" })
+        );
+        this.createButton("Salir del juego", startY + gap * 4, () => this.exitGame());
     }
 
     private createButton(label: string, y: number, onClick: () => void): void {
