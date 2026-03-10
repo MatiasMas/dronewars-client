@@ -26,7 +26,7 @@ export class MainMenuScene extends Phaser.Scene {
         const loadedMessage = localStorage.getItem("savedGameLoadedMessage");
         const newGameMessage = localStorage.getItem("newGameCreatedMessage");
         const messageToShow = loadedMessage || newGameMessage;
-        
+
         if (messageToShow) {
             const messageText = this.add.text(width / 2, height * 0.32, messageToShow, {
                 fontSize: "18px",
@@ -50,8 +50,8 @@ export class MainMenuScene extends Phaser.Scene {
             });
         }
 
-        const startY = height * 0.38;
-        const gap = 64;
+        const startY = height * 0.34;
+        const gap = 58;
 
         const hasLoadedSavedGame = localStorage.getItem("hasLoadedSavedGame") === "true";
         let row = 0;
@@ -63,6 +63,9 @@ export class MainMenuScene extends Phaser.Scene {
         this.createButton("Unirse a una partida", startY + gap * row++, () => this.scene.start("JoinGameScene"));
         this.createButton("Cargar partida guardada", startY + gap * row++, () => this.scene.start("LoadGameScene"));
         this.createButton("Consultar ranking", startY + gap * row++, () => this.scene.start("RankingScene"));
+        this.createButton("Instrucciones", startY + gap * 3, () =>
+            this.scene.start("InstructionsScene", { source: "main-menu" })
+        );
         this.createButton("Salir del juego", startY + gap * row, () => this.exitGame());
     }
 
@@ -103,7 +106,7 @@ export class MainMenuScene extends Phaser.Scene {
     private resetAndStartNewGame(): void {
         // Limpiamos la marca de partida recuperada en localStorage
         localStorage.removeItem("hasLoadedSavedGame");
-        
+
         // Guardamos mensaje para mostrar después del reload
         localStorage.setItem("newGameCreatedMessage", "Partida nueva creada. Unite a la partida para comenzar a jugar.");
 
@@ -112,7 +115,7 @@ export class MainMenuScene extends Phaser.Scene {
         client.connect()
             .then(() => {
                 client.solicitarResetJuego();
-                
+
                 // Dar tiempo al servidor para procesar el reset antes de recargar
                 setTimeout(() => {
                     client.disconnect();
@@ -125,4 +128,3 @@ export class MainMenuScene extends Phaser.Scene {
             });
     }
 }
-

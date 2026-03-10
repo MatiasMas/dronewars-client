@@ -72,6 +72,7 @@ export class GameScene extends Phaser.Scene {
   private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
   private armamentoEnemyText: Phaser.GameObjects.Text | null = null;
   private ammoByUnitId: Map<string, number> = new Map();
+  private carrierAmmoByUnitId: Map<string, number> = new Map();
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
   private fondoBotonRecarga: Phaser.GameObjects.Rectangle | null = null;
@@ -106,8 +107,8 @@ export class GameScene extends Phaser.Scene {
   private static readonly MAP_MAX_Y = 2500;
   private static readonly MAP_MIN_Z = 0;
   private static readonly MAP_MAX_Z = 10;
-  private static readonly MAP_MAX_Z_MISILES = 8;
-  private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.005;
+  private static readonly MAP_MAX_Z_MISILES = 10;
+  private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.01;
   private static readonly PANEL_DRONES_RATIO_ANCHO = 0.2;
   private static readonly PANEL_LATERAL_RATIO_ALTO = 0.2;
   private static readonly SIDEBAR_MARGEN_INTERNO = 12;
@@ -140,6 +141,8 @@ export class GameScene extends Phaser.Scene {
   private static readonly RANGO_DISPARO_MISIL = 30;
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
+  private static readonly AERIAL_CARRIER_MAX_AMMO = 30;
+  private static readonly NAVAL_CARRIER_MAX_AMMO = 60;
   private static readonly CUENTA_REGRESIVA_PORTADRONES_MS = 2 * 60 * 1000;
 
   //Visibilidad
@@ -737,18 +740,21 @@ export class GameScene extends Phaser.Scene {
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(fallbackLabel);
 
       const hpTextFallback = this.add.text(0, 20, `HP:${unit.health}`, {
         fontSize: '11px',
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(hpTextFallback);
 
       const fuelTextFallback = this.add.text(0, 32, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
         fontSize: '11px',
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(fuelTextFallback);
 
       const fallbackContainer = this.add.container(x, y, [fallbackBody, fallbackLabel, hpTextFallback, fuelTextFallback]);
 
@@ -791,18 +797,21 @@ export class GameScene extends Phaser.Scene {
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(label);
 
     const hpText = this.add.text(0, 28, `HP:${unit.health}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(hpText);
 
     const fuelText = this.add.text(0, 40, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(fuelText);
 
     const container = this.add.container(x, y, [sprite, label, hpText, fuelText]);
 
@@ -1203,6 +1212,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.ammoByUnitId.delete(unitId);
+    this.carrierAmmoByUnitId.delete(unitId);
     this.knownUnits.delete(unitId);
     this.playerUnitIds.delete(unitId);
 
@@ -1504,7 +1514,7 @@ export class GameScene extends Phaser.Scene {
     this.add.text(
       20,
       70,
-      'WASD: mover mapa libre | Flechas: mover unidad | Q/E y rueda: altura',
+      'WASD: mover mapa libre | Click izquierdo: mover unidad | Q/E y rueda: altura',
       {fontSize: '14px', color: '#cccccc'}
     ).setScrollFactor(0).setDepth(100);
 
@@ -1666,7 +1676,7 @@ export class GameScene extends Phaser.Scene {
     const panelWidth = 300;
     const panelHeight = Math.max(110, bottomPanelH - 10);
     const offsetRight = 0;
-    const offsetBottom = 50;
+    const offsetBottom = 70;
 
     const panelX = w - panelWidth / 2 - offsetRight;
     const panelY = h - bottomPanelH - offsetBottom;
@@ -1693,6 +1703,7 @@ export class GameScene extends Phaser.Scene {
       '-',
       { fontSize: '12px', color: '#e5e7eb', align: 'center' }
     ).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(etiquetaDron);
 
     // 2) "Imagen" del dron justo debajo de la etiqueta
     const imagenCenterX = 0;
@@ -1719,6 +1730,7 @@ export class GameScene extends Phaser.Scene {
       'Armamento: -',
       { fontSize: '12px', color: '#d1d5db' }
     ).setOrigin(0, 0);
+    this.aplicarFondoSuaveTexto(this.selectedUnitArmamentoText);
 
     this.selectedUnitFuelText = this.add.text(
       textoBaseX,
@@ -1841,6 +1853,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+    if (this.esPortadrones(unit)) {
+      const etiqueta = unit.type === UnitType.AERIAL_CARRIER ? 'Bombas' : 'Misiles';
+      const max = this.getCarrierMaxAmmo(unit);
+      const actual = this.carrierAmmoByUnitId.get(unit.unitId) ?? max;
+      this.selectedUnitArmamentoText.setText(`Armamento: ${etiqueta} ${actual}/${max}`);
+      return;
+    }
+
     if (!this.esUnidadDron(unit)) {
       this.selectedUnitArmamentoText.setText('Armamento: N/A');
       return;
@@ -1902,7 +1922,14 @@ export class GameScene extends Phaser.Scene {
 
   private sincronizarMunicionInicial(units: IUnit[]): void {
     const siguiente = new Map<string, number>();
+    const siguienteCarrierAmmo = new Map<string, number>();
     units.forEach(unit => {
+      if (this.esPortadrones(unit)) {
+        const max = this.getCarrierMaxAmmo(unit);
+        const inicial = this.obtenerCarrierAmmoDesdeUnidad(unit, max);
+        siguienteCarrierAmmo.set(unit.unitId, inicial);
+        return;
+      }
       if (!this.esUnidadDron(unit)) {
         return;
       }
@@ -1911,6 +1938,22 @@ export class GameScene extends Phaser.Scene {
       siguiente.set(unit.unitId, maxPorDron);
     });
     this.ammoByUnitId = siguiente;
+    this.carrierAmmoByUnitId = siguienteCarrierAmmo;
+  }
+
+  private getCarrierMaxAmmo(unit: IUnit): number {
+    if (unit.type === UnitType.AERIAL_CARRIER) {
+      return GameScene.AERIAL_CARRIER_MAX_AMMO;
+    }
+    if (unit.type === UnitType.NAVAL_CARRIER) {
+      return GameScene.NAVAL_CARRIER_MAX_AMMO;
+    }
+    return 0;
+  }
+
+  private obtenerCarrierAmmoDesdeUnidad(unit: IUnit, fallback: number): number {
+    const raw = unit.municionDisponible;
+    return typeof raw === 'number' ? Phaser.Math.Clamp(raw, 0, fallback) : fallback;
   }
 
   private procesarMunicionRecargada(payload: any): void {
@@ -1926,11 +1969,19 @@ export class GameScene extends Phaser.Scene {
 
     const esJugadorUno = this.esUnidadDeJugador1(unitId);
     const maxPorDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+    const previo = this.ammoByUnitId.get(unitId) ?? 0;
 
     let nuevo = typeof payload?.ammo === 'number' ? payload.ammo : maxPorDron;
     nuevo = Phaser.Math.Clamp(nuevo, 0, maxPorDron);
 
     this.ammoByUnitId.set(unitId, nuevo);
+    const recargado = Math.max(0, nuevo - previo);
+    const carrierAmmo = this.extraerCarrierAmmoDesdePayload(payload);
+    if (typeof carrierAmmo === 'number') {
+      this.setCarrierAmmoByTeam(esJugadorUno, carrierAmmo);
+    } else if (recargado > 0) {
+      this.consumeCarrierAmmoByTeam(esJugadorUno, recargado);
+    }
     this.actualizarArmamentoUI();
 
     if (typeof payload?.combustible === 'number') {
@@ -1940,6 +1991,53 @@ export class GameScene extends Phaser.Scene {
         fuelLabel.setText(`FUEL:${Math.round(payload.combustible)}`);
       }
     }
+  }
+
+  private extraerCarrierAmmoDesdePayload(payload: any): number | null {
+    const raw = payload?.municionDisponible;
+    return typeof raw === 'number' ? raw : null;
+  }
+
+  private getCarrierIdByTeam(esJugadorUno: boolean): string | null {
+    for (const unit of this.knownUnits.values()) {
+      if (!this.esPortadrones(unit)) {
+        continue;
+      }
+      if (this.esUnidadDeJugador1(unit.unitId) === esJugadorUno) {
+        return unit.unitId;
+      }
+    }
+    return null;
+  }
+
+  private setCarrierAmmoByTeam(esJugadorUno: boolean, ammo: number): void {
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(ammo, 0, max));
+  }
+
+  private consumeCarrierAmmoByTeam(esJugadorUno: boolean, amount: number): void {
+    if (amount <= 0) {
+      return;
+    }
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    const actual = this.carrierAmmoByUnitId.get(carrierId) ?? max;
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(actual - amount, 0, max));
   }
 
   private setupPointerControls(): void {
@@ -2468,6 +2566,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.knownUnits.delete(unidadId);
+    this.carrierAmmoByUnitId.delete(unidadId);
     this.playerUnitIds.delete(unidadId);
 
     if (this.selectionManager?.getSelectedUnit()?.unitId === unidadId) {
@@ -2673,6 +2772,16 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const portadrones = this.knownUnits.get(portadronesId);
+    if (portadrones && this.esPortadrones(portadrones)) {
+      const max = this.getCarrierMaxAmmo(portadrones);
+      const actual = this.carrierAmmoByUnitId.get(portadronesId) ?? max;
+      if (actual <= 0) {
+        this.showError('El portadrones no tiene armamento disponible');
+        return;
+      }
+    }
+
     // Evento para recarga (el servidor debe validar proximidad y estado)
     this.websocketClient.solicitarRecargaMunicion(unidadSeleccionada.unitId, portadronesId);
   }
@@ -2695,7 +2804,19 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    return this.buscarPortadronesCercanoId(unidadSeleccionada) !== null;
+    const portadronesId = this.buscarPortadronesCercanoId(unidadSeleccionada);
+    if (!portadronesId) {
+      return false;
+    }
+
+    const portadrones = this.knownUnits.get(portadronesId);
+    if (!portadrones || !this.esPortadrones(portadrones)) {
+      return false;
+    }
+
+    const max = this.getCarrierMaxAmmo(portadrones);
+    const actual = this.carrierAmmoByUnitId.get(portadronesId) ?? max;
+    return actual > 0;
   }
 
   private buscarPortadronesCercanoId(dron: IUnit): string | null {
@@ -2845,11 +2966,11 @@ export class GameScene extends Phaser.Scene {
       // Limpiar recursos y desconectar WebSocket
       this.websocketClient?.disconnect();
       this.websocketClient = null;
-      
+
       // Limpiar listeners y recursos de Phaser
       this.input.keyboard?.removeAllListeners();
       this.events.removeAllListeners();
-      
+
       // Transición limpia a MainMenuScene
       this.scene.start('MainMenuScene');
     });
@@ -3050,7 +3171,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const etiquetasSidebar = this.obtenerEtiquetasSidebarPorUnidad(unidadesPropias);
+    const etiquetasSincronizadas = this.obtenerEtiquetasSincronizadasPorUnidad();
     const { ladoCuadro, espacio, offsetY } = this.calcularGridSidebar(unidadesPropias.length, anchoPanel, altoPanel);
     const fuenteEtiqueta = ladoCuadro >= 74 ? '14px' : ladoCuadro >= 52 ? '12px' : ladoCuadro >= 36 ? '10px' : '9px';
 
@@ -3079,7 +3200,11 @@ export class GameScene extends Phaser.Scene {
       tarjeta.setScrollFactor(0).setDepth(132);
       this.sidebarElementos.push(tarjeta);
 
-      const etiquetaTarjeta = this.add.text(centroX, yTop + (ladoCuadro / 2), etiquetasSidebar.get(unidad.unitId) ?? `Dron ${index + 1}`, {
+      const etiquetaTarjeta = this.add.text(
+        centroX,
+        yTop + (ladoCuadro / 2),
+        etiquetasSincronizadas.get(unidad.unitId)?.sidebar ?? `Dron ${index + 1}`,
+        {
         fontSize: fuenteEtiqueta,
         color: this.colorNumeroAHexSidebar(colorDetalle),
         fontStyle: 'bold',
@@ -3119,16 +3244,19 @@ export class GameScene extends Phaser.Scene {
       });
   }
 
-  private obtenerEtiquetasSidebarPorUnidad(unidades: ISideViewUnit[]): Map<string, string> {
-    const etiquetas = new Map<string, string>();
+  private obtenerEtiquetasSincronizadasPorUnidad(): Map<string, { sidebar: string; inferior: string }> {
+    const etiquetas = new Map<string, { sidebar: string; inferior: string }>();
     let numeroDron = 1;
+    const unidadesOrdenadas = this.obtenerUnidadesSidebarOrdenadas();
 
-    unidades.forEach(unidad => {
+    unidadesOrdenadas.forEach(unidad => {
       if (this.esPortadronSidebar(unidad.type)) {
-        etiquetas.set(unidad.unitId, 'Portadron');
+        etiquetas.set(unidad.unitId, { sidebar: 'Portadron', inferior: 'P' });
         return;
       }
-      etiquetas.set(unidad.unitId, `Dron ${numeroDron}`);
+
+      const numero = `${numeroDron}`;
+      etiquetas.set(unidad.unitId, { sidebar: `Dron ${numero}`, inferior: numero });
       numeroDron += 1;
     });
 
@@ -3244,17 +3372,7 @@ export class GameScene extends Phaser.Scene {
     const panelW = this.scale.width;
     const panelH = this.obtenerAltoPanelLateral();
     const padding = GameScene.PANEL_INFERIOR_PADDING;
-    const etiquetasPropias = this.obtenerEtiquetasVistaLateralInferiorPorUnidad(
-      this.vistaLateralInferiorUnidades
-        .filter(unidad => unidad.isPlayerUnit && this.esUnidadRenderizableSidebar(unidad.type))
-        .sort((a, b) => {
-          const prioridad = this.obtenerPrioridadSidebar(a.type) - this.obtenerPrioridadSidebar(b.type);
-          if (prioridad !== 0) {
-            return prioridad;
-          }
-          return a.unitId.localeCompare(b.unitId);
-        })
-    );
+    const etiquetasSincronizadas = this.obtenerEtiquetasSincronizadasPorUnidad();
 
     this.vistaLateralInferiorPuntos.forEach(contenedor => contenedor.destroy());
     this.vistaLateralInferiorPuntos.clear();
@@ -3277,7 +3395,7 @@ export class GameScene extends Phaser.Scene {
         : this.add.circle(0, 0, 6, color);
       figuraUnidad.setStrokeStyle(esPortadron ? 2 : 1, unidad.isPlayerUnit ? 0x00ff88 : 0xff4444);
 
-      const label = this.add.text(0, -14, unidad.isPlayerUnit ? (etiquetasPropias.get(unidad.unitId) ?? '?') : 'E', {
+      const label = this.add.text(0, -14, unidad.isPlayerUnit ? (etiquetasSincronizadas.get(unidad.unitId)?.inferior ?? '?') : 'E', {
         fontSize: '9px',
         color: unidad.health <= 0 ? '#666666' : '#ffffff'
       }).setOrigin(0.5);
@@ -3286,22 +3404,6 @@ export class GameScene extends Phaser.Scene {
       container.setScrollFactor(0).setDepth(119);
       this.vistaLateralInferiorPuntos.set(unidad.unitId, container);
     });
-  }
-
-  private obtenerEtiquetasVistaLateralInferiorPorUnidad(unidades: ISideViewUnit[]): Map<string, string> {
-    const etiquetas = new Map<string, string>();
-    let numeroDron = 1;
-
-    unidades.forEach(unidad => {
-      if (this.esPortadronSidebar(unidad.type)) {
-        etiquetas.set(unidad.unitId, 'P');
-        return;
-      }
-      etiquetas.set(unidad.unitId, `${numeroDron}`);
-      numeroDron += 1;
-    });
-
-    return etiquetas;
   }
 
   private xVistaLateralInferiorAPantalla(worldX: number, panelW: number, padding: number): number {
@@ -3416,6 +3518,11 @@ export class GameScene extends Phaser.Scene {
     }
 
     return unidadesConVision;
+  }
+
+  private aplicarFondoSuaveTexto(texto: Phaser.GameObjects.Text): void {
+    texto.setBackgroundColor('rgba(80,80,80,0.35)');
+    texto.setPadding(2, 1, 2, 1);
   }
 
   private esVisibleParaDronesPropios(unidadEnemiga: IUnit): boolean {

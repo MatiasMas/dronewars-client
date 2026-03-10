@@ -318,7 +318,6 @@ export class WebSocketClient {
         return;
       }
 
-      // Si no coincide con nada específico, envia el tipo recibido a los escuchas.
       if (data.type === ServerToClientEvents.GAME_PAUSE_UPDATED) {
         this.emit(ServerToClientEvents.GAME_PAUSE_UPDATED, data.payload);
         return;
