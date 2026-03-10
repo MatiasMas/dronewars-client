@@ -105,8 +105,8 @@ export class GameScene extends Phaser.Scene {
   private static readonly MAP_MAX_Y = 2500;
   private static readonly MAP_MIN_Z = 0;
   private static readonly MAP_MAX_Z = 10;
-  private static readonly MAP_MAX_Z_MISILES = 8;
-  private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.005;
+  private static readonly MAP_MAX_Z_MISILES = 10;
+  private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.01;
   private static readonly PANEL_DRONES_RATIO_ANCHO = 0.2;
   private static readonly PANEL_LATERAL_RATIO_ALTO = 0.2;
   private static readonly SIDEBAR_MARGEN_INTERNO = 12;
@@ -2624,11 +2624,11 @@ export class GameScene extends Phaser.Scene {
 
     const overlay = this.add.rectangle(centroX, centroY, anchoPantalla, altoPantalla, 0x000000, 0.45);
 
-    const panel = this.add.rectangle(centroX, centroY, 390, 390, 0x111827, 0.96);
+    const panel = this.add.rectangle(centroX, centroY, 380, 330, 0x111827, 0.96);
     panel.setStrokeStyle(2, 0x4b5563, 0.95);
     panel.setInteractive();
 
-    const titulo = this.add.text(centroX, centroY - 150, 'Menu de pausa', {
+    const titulo = this.add.text(centroX, centroY - 125, 'Menu de pausa', {
       fontSize: '24px',
       color: '#f9fafb',
       fontStyle: 'bold'
@@ -2675,28 +2675,19 @@ export class GameScene extends Phaser.Scene {
       return { contenedor, texto: etiqueta };
     };
 
-    const botonPausa = crearBoton(centroY - 85, 'Pausar partida', () => {
+    const botonPausa = crearBoton(centroY - 55, 'Pausar partida', () => {
       this.websocketClient?.solicitarPausaPartida(!this.partidaPausada);
     });
 
-    const botonGuardar = crearBoton(centroY - 35, 'Guardar partida', () => {
+    const botonGuardar = crearBoton(centroY - 5, 'Guardar partida', () => {
       this.websocketClient?.solicitarGuardarPartida();
     });
 
-    const botonInstrucciones = crearBoton(centroY + 15, 'Instrucciones', () => {
-      if (this.scene.isActive('InstructionsScene')) {
-        return;
-      }
-
-      this.scene.launch('InstructionsScene', { source: 'pause-menu' });
-      this.scene.pause();
-    });
-
-    const botonConfig = crearBoton(centroY + 65, 'Configuracion', () => {
+    const botonConfig = crearBoton(centroY + 45, 'Configuracion', () => {
       this.showError('Configuracion pendiente');
     });
 
-    const botonSalir = crearBoton(centroY + 115, 'Salir al menu', () => {
+    const botonSalir = crearBoton(centroY + 95, 'Salir al menu', () => {
       const confirmar = window.confirm('Seguro que queres salir al menu principal?');
       if (!confirmar) {
         return;
@@ -2712,7 +2703,6 @@ export class GameScene extends Phaser.Scene {
       titulo,
       botonPausa.contenedor,
       botonGuardar.contenedor,
-      botonInstrucciones.contenedor,
       botonConfig.contenedor,
       botonSalir.contenedor
     ]);
@@ -2903,7 +2893,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const etiquetasSidebar = this.obtenerEtiquetasSidebarPorUnidad(unidadesPropias);
+    const etiquetasSincronizadas = this.obtenerEtiquetasSincronizadasPorUnidad();
     const { ladoCuadro, espacio, offsetY } = this.calcularGridSidebar(unidadesPropias.length, anchoPanel, altoPanel);
     const fuenteEtiqueta = ladoCuadro >= 74 ? '14px' : ladoCuadro >= 52 ? '12px' : ladoCuadro >= 36 ? '10px' : '9px';
 
@@ -2932,7 +2922,11 @@ export class GameScene extends Phaser.Scene {
       tarjeta.setScrollFactor(0).setDepth(132);
       this.sidebarElementos.push(tarjeta);
 
-      const etiquetaTarjeta = this.add.text(centroX, yTop + (ladoCuadro / 2), etiquetasSidebar.get(unidad.unitId) ?? `Dron ${index + 1}`, {
+      const etiquetaTarjeta = this.add.text(
+        centroX,
+        yTop + (ladoCuadro / 2),
+        etiquetasSincronizadas.get(unidad.unitId)?.sidebar ?? `Dron ${index + 1}`,
+        {
         fontSize: fuenteEtiqueta,
         color: this.colorNumeroAHexSidebar(colorDetalle),
         fontStyle: 'bold',
@@ -2972,16 +2966,19 @@ export class GameScene extends Phaser.Scene {
       });
   }
 
-  private obtenerEtiquetasSidebarPorUnidad(unidades: ISideViewUnit[]): Map<string, string> {
-    const etiquetas = new Map<string, string>();
+  private obtenerEtiquetasSincronizadasPorUnidad(): Map<string, { sidebar: string; inferior: string }> {
+    const etiquetas = new Map<string, { sidebar: string; inferior: string }>();
     let numeroDron = 1;
+    const unidadesOrdenadas = this.obtenerUnidadesSidebarOrdenadas();
 
-    unidades.forEach(unidad => {
+    unidadesOrdenadas.forEach(unidad => {
       if (this.esPortadronSidebar(unidad.type)) {
-        etiquetas.set(unidad.unitId, 'Portadron');
+        etiquetas.set(unidad.unitId, { sidebar: 'Portadron', inferior: 'P' });
         return;
       }
-      etiquetas.set(unidad.unitId, `Dron ${numeroDron}`);
+
+      const numero = `${numeroDron}`;
+      etiquetas.set(unidad.unitId, { sidebar: `Dron ${numero}`, inferior: numero });
       numeroDron += 1;
     });
 
@@ -3097,17 +3094,7 @@ export class GameScene extends Phaser.Scene {
     const panelW = this.scale.width;
     const panelH = this.obtenerAltoPanelLateral();
     const padding = GameScene.PANEL_INFERIOR_PADDING;
-    const etiquetasPropias = this.obtenerEtiquetasVistaLateralInferiorPorUnidad(
-      this.vistaLateralInferiorUnidades
-        .filter(unidad => unidad.isPlayerUnit && this.esUnidadRenderizableSidebar(unidad.type))
-        .sort((a, b) => {
-          const prioridad = this.obtenerPrioridadSidebar(a.type) - this.obtenerPrioridadSidebar(b.type);
-          if (prioridad !== 0) {
-            return prioridad;
-          }
-          return a.unitId.localeCompare(b.unitId);
-        })
-    );
+    const etiquetasSincronizadas = this.obtenerEtiquetasSincronizadasPorUnidad();
 
     this.vistaLateralInferiorPuntos.forEach(contenedor => contenedor.destroy());
     this.vistaLateralInferiorPuntos.clear();
@@ -3130,7 +3117,7 @@ export class GameScene extends Phaser.Scene {
         : this.add.circle(0, 0, 6, color);
       figuraUnidad.setStrokeStyle(esPortadron ? 2 : 1, unidad.isPlayerUnit ? 0x00ff88 : 0xff4444);
 
-      const label = this.add.text(0, -14, unidad.isPlayerUnit ? (etiquetasPropias.get(unidad.unitId) ?? '?') : 'E', {
+      const label = this.add.text(0, -14, unidad.isPlayerUnit ? (etiquetasSincronizadas.get(unidad.unitId)?.inferior ?? '?') : 'E', {
         fontSize: '9px',
         color: unidad.health <= 0 ? '#666666' : '#ffffff'
       }).setOrigin(0.5);
@@ -3139,22 +3126,6 @@ export class GameScene extends Phaser.Scene {
       container.setScrollFactor(0).setDepth(119);
       this.vistaLateralInferiorPuntos.set(unidad.unitId, container);
     });
-  }
-
-  private obtenerEtiquetasVistaLateralInferiorPorUnidad(unidades: ISideViewUnit[]): Map<string, string> {
-    const etiquetas = new Map<string, string>();
-    let numeroDron = 1;
-
-    unidades.forEach(unidad => {
-      if (this.esPortadronSidebar(unidad.type)) {
-        etiquetas.set(unidad.unitId, 'P');
-        return;
-      }
-      etiquetas.set(unidad.unitId, `${numeroDron}`);
-      numeroDron += 1;
-    });
-
-    return etiquetas;
   }
 
   private xVistaLateralInferiorAPantalla(worldX: number, panelW: number, padding: number): number {

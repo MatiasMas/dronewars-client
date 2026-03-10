@@ -61,7 +61,6 @@ export class InstructionsScene extends Phaser.Scene {
 
     const close = (): void => {
       if (this.source === "pause-menu") {
-        this.scene.resume("GameScene");
         this.scene.stop();
         return;
       }
@@ -116,4 +115,3 @@ export class InstructionsScene extends Phaser.Scene {
     ].join("\n");
   }
 }
-
