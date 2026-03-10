@@ -22,6 +22,10 @@ export enum ClientToServerEvents {
   //MENU DE PAUSA
   SET_GAME_PAUSED = 'SET_GAME_PAUSED',
   REQUEST_SAVE_GAME = 'REQUEST_SAVE_GAME',
+  LOAD_SAVED_GAME = 'LOAD_SAVED_GAME',
+  RESET_GAME = 'RESET_GAME',
+  REQUEST_AVAILABLE_PLAYERS = 'REQUEST_AVAILABLE_PLAYERS',
+  SAVE_WINNER_SCORE = 'SAVE_WINNER_SCORE',
 }
 
 export enum ServerToClientEvents {
@@ -44,6 +48,7 @@ export enum ServerToClientEvents {
   // En el futuro, los eventos de sincronizacion deberian ir aqui
   GAME_PAUSE_UPDATED = 'GAME_PAUSE_UPDATED',
   SAVE_GAME_RESULT = 'SAVE_GAME_RESULT',
+  SAVED_GAME_LOADED = 'SAVED_GAME_LOADED',
 }
 
 /*

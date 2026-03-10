@@ -435,7 +435,14 @@ export class GameScene extends Phaser.Scene {
         ? payload.message
         : (ok ? 'Partida guardada' : 'No se pudo guardar la partida');
 
-      this.showError(message);
+      if (ok && typeof payload?.codigoUnico === 'string') {
+        const codigo = payload.codigoUnico as string;
+        console.log("[GameScene] Partida guardada con codigo:", codigo);
+        // Mostramos el código al usuario para que lo anote.
+        this.showError(`Partida guardada.\nCódigo: ${codigo}`);
+      } else {
+        this.showError(message);
+      }
     });
 
     this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
@@ -2717,10 +2724,21 @@ export class GameScene extends Phaser.Scene {
 
       this.capturandoNombre = false;
 
+      // Guardar en localStorage (para historial local)
       this.highScoreManager.saveScore(
           this.nombreJugador,
           this.playerScore
       );
+
+      // Enviar al servidor para guardar en BD
+      if (this.websocketClient) {
+        const playerId = this.registry.get("preferredPlayerId") || "";
+        this.websocketClient.enviarPuntajeGanador(
+            this.nombreJugador,
+            this.playerScore,
+            playerId
+        );
+      }
 
       console.log("Score guardado:", this.nombreJugador, this.playerScore);
 
@@ -2941,8 +2959,20 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
+      // Limpiar datos de jugador guardados
+      localStorage.removeItem("dronewars:save-slot");
+      this.registry.remove("preferredPlayerId");
+
+      // Limpiar recursos y desconectar WebSocket
       this.websocketClient?.disconnect();
-      window.location.reload();
+      this.websocketClient = null;
+
+      // Limpiar listeners y recursos de Phaser
+      this.input.keyboard?.removeAllListeners();
+      this.events.removeAllListeners();
+
+      // Transición limpia a MainMenuScene
+      this.scene.start('MainMenuScene');
     });
 
     this.menuPausaContenedor = this.add.container(0, 0, [

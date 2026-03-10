@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { WebSocketClient } from "../network/WebSocketClient";
 
 export class MainMenuScene extends Phaser.Scene {
     constructor() {
@@ -21,16 +22,51 @@ export class MainMenuScene extends Phaser.Scene {
             color: "#a5b4fc",
         }).setOrigin(0.5);
 
+        // Mostrar mensaje de carga exitosa si existe
+        const loadedMessage = localStorage.getItem("savedGameLoadedMessage");
+        const newGameMessage = localStorage.getItem("newGameCreatedMessage");
+        const messageToShow = loadedMessage || newGameMessage;
+
+        if (messageToShow) {
+            const messageText = this.add.text(width / 2, height * 0.32, messageToShow, {
+                fontSize: "18px",
+                color: "#4ade80",
+                align: "center",
+                wordWrap: { width: width * 0.8 }
+            }).setOrigin(0.5);
+
+            // Remover los mensajes después de mostrarlos
+            localStorage.removeItem("savedGameLoadedMessage");
+            localStorage.removeItem("newGameCreatedMessage");
+
+            // Hacer que el mensaje desaparezca después de 5 segundos
+            this.time.delayedCall(5000, () => {
+                this.tweens.add({
+                    targets: messageText,
+                    alpha: 0,
+                    duration: 500,
+                    onComplete: () => messageText.destroy()
+                });
+            });
+        }
+
         const startY = height * 0.34;
         const gap = 58;
 
-        this.createButton("Unirse a una partida", startY + gap * 0, () => this.scene.start("JoinGameScene"));
-        this.createButton("Cargar partida guardada", startY + gap * 1, () => this.scene.start("LoadGameScene"));
-        this.createButton("Consultar ranking", startY + gap * 2, () => this.scene.start("RankingScene"));
+        const hasLoadedSavedGame = localStorage.getItem("hasLoadedSavedGame") === "true";
+        let row = 0;
+
+        if (hasLoadedSavedGame) {
+            this.createButton("Comenzar nueva partida", startY + gap * row++, () => this.resetAndStartNewGame());
+        }
+
+        this.createButton("Unirse a una partida", startY + gap * row++, () => this.scene.start("JoinGameScene"));
+        this.createButton("Cargar partida guardada", startY + gap * row++, () => this.scene.start("LoadGameScene"));
+        this.createButton("Consultar ranking", startY + gap * row++, () => this.scene.start("RankingScene"));
         this.createButton("Instrucciones", startY + gap * 3, () =>
             this.scene.start("InstructionsScene", { source: "main-menu" })
         );
-        this.createButton("Salir del juego", startY + gap * 4, () => this.exitGame());
+        this.createButton("Salir del juego", startY + gap * row, () => this.exitGame());
     }
 
     private createButton(label: string, y: number, onClick: () => void): void {
@@ -66,5 +102,29 @@ export class MainMenuScene extends Phaser.Scene {
   `;
         }
     }
-}
 
+    private resetAndStartNewGame(): void {
+        // Limpiamos la marca de partida recuperada en localStorage
+        localStorage.removeItem("hasLoadedSavedGame");
+
+        // Guardamos mensaje para mostrar después del reload
+        localStorage.setItem("newGameCreatedMessage", "Partida nueva creada. Unite a la partida para comenzar a jugar.");
+
+        // Enviamos RESET_GAME al servidor en un WebSocket efímero
+        const client = new WebSocketClient();
+        client.connect()
+            .then(() => {
+                client.solicitarResetJuego();
+
+                // Dar tiempo al servidor para procesar el reset antes de recargar
+                setTimeout(() => {
+                    client.disconnect();
+                    window.location.reload();
+                }, 500);
+            })
+            .catch(() => {
+                // Si falla la conexión, recargar de todas formas
+                window.location.reload();
+            });
+    }
+}

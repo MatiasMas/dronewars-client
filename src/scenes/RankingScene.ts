@@ -1,14 +1,13 @@
 import Phaser from "phaser";
-import {HighScoreManager} from "../managers/HighScoreManager";
 
 export class RankingScene extends Phaser.Scene {
-    private highScoreManager = new HighScoreManager();
+    private static readonly API_URL = "http://localhost:6969/api/ranking";
+
     constructor() {
         super("RankingScene");
     }
 
-    create(): void {
-        const scores = this.highScoreManager.getScores();
+    async create(): Promise<void> {
         const { width, height } = this.scale;
         this.add.rectangle(width / 2, height / 2, width, height, 0x111827);
 
@@ -18,18 +17,46 @@ export class RankingScene extends Phaser.Scene {
             fontStyle: "bold"
         }).setOrigin(0.5);
 
-        const top = scores.map((s, i) =>
-            `${i + 1}. ${s.name} - ${s.score} pts`
-        );
+        const statusText = this.add.text(width / 2, 160, "Cargando ranking...", {
+            fontSize: "20px",
+            color: "#cbd5e1"
+        }).setOrigin(0.5);
 
-        top.forEach((line, i) => {
-            this.add.text(width / 2, 190 + i * 48, line, {
-                fontSize: "24px",
-                color: "#cbd5e1"
-            }).setOrigin(0.5);
+        try {
+            const response = await fetch(`${RankingScene.API_URL}?limit=10`);
+            
+            if (!response.ok) {
+                throw new Error("Error al cargar ranking");
+            }
+
+            const ranking = await response.json();
+            
+            statusText.destroy();
+
+            if (ranking.length === 0) {
+                this.add.text(width / 2, 190, "No hay puntajes registrados", {
+                    fontSize: "20px",
+                    color: "#94a3b8"
+                }).setOrigin(0.5);
+            } else {
+                ranking.forEach((entry: any, i: number) => {
+                    const line = `${i + 1}. ${entry.nickname} - ${entry.score} pts`;
+                    this.add.text(width / 2, 190 + i * 48, line, {
+                        fontSize: "24px",
+                        color: "#cbd5e1"
+                    }).setOrigin(0.5);
+                });
+            }
+        } catch (error) {
+            console.error("Error al cargar ranking:", error);
+            statusText.setText("Error al cargar el ranking");
+            statusText.setColor("#ef4444");
+        }
+
+        this.createButton("Volver al menú", height - 90, () => {
+            // Recargar la página para limpiar completamente el estado después de una partida
+            window.location.reload();
         });
-
-        this.createButton("Volver al menú", height - 90, () => this.scene.start("MainMenuScene"));
     }
 
     private createButton(label: string, y: number, onClick: () => void): void {
