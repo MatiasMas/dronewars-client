@@ -11,6 +11,7 @@ export interface IUnit {
   y: number,
   z: number,
   health: number,
-  combustible?: number
+  combustible?: number,
+  municionDisponible?: number
 }
 

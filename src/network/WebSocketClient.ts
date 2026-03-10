@@ -10,7 +10,7 @@ export class WebSocketClient {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnected: boolean = false;
 
-  constructor(url: string = 'ws://192.168.1.68:8081/game') {
+  constructor(url: string = 'ws://192.168.1.87:8081/game') {
     this.url = url;
  }
 
