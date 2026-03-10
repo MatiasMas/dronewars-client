@@ -3,6 +3,10 @@ import { WebSocketClient } from "../network/WebSocketClient";
 import { ServerToClientEvents } from "../types/CommunicationEvents";
 import { IAvailablePlayer } from "../types/IAvailablePlayer";
 
+type JoinGameSceneInitData = {
+    websocketClient?: WebSocketClient;
+};
+
 export class JoinGameScene extends Phaser.Scene {
     private websocketClient: WebSocketClient | null = null;
     private statusText: Phaser.GameObjects.Text | null = null;
@@ -15,14 +19,12 @@ export class JoinGameScene extends Phaser.Scene {
         texts: Phaser.GameObjects.Text[];
     }> = [];
     private availablePlayersListener: ((players: IAvailablePlayer[]) => void) | null = null;
-    private readinessPollTimer: ReturnType<typeof setInterval> | null = null;
-    private readinessPollInFlight = false;
 
     constructor() {
         super("JoinGameScene");
     }
 
-    async create(): Promise<void> {
+    async create(data?: JoinGameSceneInitData): Promise<void> {
         const { width, height } = this.scale;
         this.add.rectangle(width / 2, height / 2, width, height, 0x111827);
 
@@ -39,28 +41,38 @@ export class JoinGameScene extends Phaser.Scene {
 
         this.createButton("Volver al menú", height - 90, () => {
             this.detachLobbyListeners();
-            this.stopReadinessPolling();
             this.websocketClient?.disconnect();
             this.scene.start("MainMenuScene");
         });
+
+        // Si LoadGameScene nos pasó un websocketClient ya conectado, lo reutilizamos
+        if (data?.websocketClient && data.websocketClient.isConnectedToServer()) {
+            this.websocketClient = data.websocketClient;
+        }
 
         await this.loadPlayers();
     }
 
     private async loadPlayers(): Promise<void> {
-        this.websocketClient = new WebSocketClient();
+        // Si no tenemos websocketClient, creamos uno nuevo
+        if (!this.websocketClient) {
+            this.websocketClient = new WebSocketClient();
 
-        try {
-            await this.websocketClient.connect();
-        } catch {
-            this.setStatus("No se pudo conectar al servidor.");
-            return;
+            try {
+                await this.websocketClient.connect();
+            } catch {
+                this.setStatus("No se pudo conectar al servidor.");
+                return;
+            }
         }
 
         this.availablePlayersListener = (players: IAvailablePlayer[]) => {
             this.handleAvailablePlayers(players ?? []);
         };
         this.websocketClient.on(ServerToClientEvents.AVAILABLE_PLAYERS, this.availablePlayersListener);
+
+        // Si estamos reutilizando un WebSocket ya conectado, solicitar explícitamente los jugadores
+        this.websocketClient.solicitarJugadoresDisponibles();
 
         const players = await this.waitForAvailablePlayers();
         this.handleAvailablePlayers(players ?? []);
@@ -192,7 +204,7 @@ export class JoinGameScene extends Phaser.Scene {
         }
 
         this.registrationConfirmed = true;
-        this.startReadinessPolling();
+        // Ya no necesitamos polling; el servidor hace broadcast cuando alguien se registra
         this.tryStartGameWhenBothJoined();
     }
 
@@ -232,7 +244,6 @@ export class JoinGameScene extends Phaser.Scene {
         this.hasStartedGame = true;
         this.setStatus("Ambos jugadores unidos. Iniciando partida...");
         this.detachLobbyListeners();
-        this.stopReadinessPolling();
         this.scene.start("GameScene", {
             preferredPlayerId: this.selectedPlayerId,
             websocketClient: this.websocketClient,
@@ -279,64 +290,6 @@ export class JoinGameScene extends Phaser.Scene {
 
         this.websocketClient.off(ServerToClientEvents.AVAILABLE_PLAYERS, this.availablePlayersListener);
         this.availablePlayersListener = null;
-    }
-
-    private startReadinessPolling(): void {
-        if (!this.websocketClient || this.hasStartedGame || !this.registrationConfirmed) {
-            return;
-        }
-
-        if (!this.readinessPollTimer) {
-            this.readinessPollTimer = setInterval(async () => {
-                if (!this.websocketClient || this.hasStartedGame || !this.registrationConfirmed || this.readinessPollInFlight) {
-                    return;
-                }
-
-                this.readinessPollInFlight = true;
-                try {
-                    const freshPlayers = await this.fetchFreshAvailablePlayersSnapshot();
-                    if (freshPlayers) {
-                        this.handleAvailablePlayers(freshPlayers);
-                    }
-                } finally {
-                    this.readinessPollInFlight = false;
-                }
-            }, 1200);
-        }
-    }
-
-    private stopReadinessPolling(): void {
-        if (this.readinessPollTimer) {
-            clearInterval(this.readinessPollTimer);
-            this.readinessPollTimer = null;
-        }
-        this.readinessPollInFlight = false;
-    }
-
-    private async fetchFreshAvailablePlayersSnapshot(): Promise<IAvailablePlayer[] | null> {
-        const probeClient = new WebSocketClient();
-
-        try {
-            await probeClient.connect();
-            return await new Promise<IAvailablePlayer[] | null>(resolve => {
-                const onPlayers = (players: IAvailablePlayer[]) => {
-                    clearTimeout(timeout);
-                    probeClient.off(ServerToClientEvents.AVAILABLE_PLAYERS, onPlayers);
-                    resolve(players ?? []);
-                };
-
-                const timeout = setTimeout(() => {
-                    probeClient.off(ServerToClientEvents.AVAILABLE_PLAYERS, onPlayers);
-                    resolve(null);
-                }, 2000);
-
-                probeClient.on(ServerToClientEvents.AVAILABLE_PLAYERS, onPlayers);
-            });
-        } catch {
-            return null;
-        } finally {
-            probeClient.disconnect();
-        }
     }
 
     private setStatus(text: string): void {
