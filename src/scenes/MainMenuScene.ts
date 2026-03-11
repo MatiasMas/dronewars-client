@@ -4,7 +4,6 @@ import { SoundManager } from "../managers/SoundManager";
 import { AnimationManager } from "../managers/AnimationManager";
 
 export class MainMenuScene extends Phaser.Scene {
-    private static hasPlayedIntro = false;
     private soundManager!: SoundManager;
 
     constructor() {
@@ -21,7 +20,10 @@ export class MainMenuScene extends Phaser.Scene {
         this.soundManager = new SoundManager(this);
         AnimationManager.createAnimations(this);
 
-        if (!MainMenuScene.hasPlayedIntro) {
+        // Verificar si ya se reprodujo la intro (en localStorage o en la sesión actual)
+        const hasPlayedIntro = localStorage.getItem("hasPlayedIntro") === "true";
+
+        if (!hasPlayedIntro) {
             this.showInitialClickScreen();
         } else {
             this.showMainMenuContent();
@@ -43,11 +45,15 @@ export class MainMenuScene extends Phaser.Scene {
             repeat: -1
         });
 
-        bg.once("pointerdown", () => {
+        const skipHandler = () => {
             titleImg.destroy();
             bg.destroy();
+            this.input.keyboard?.off("keydown", skipHandler);
             this.startIntroSequence();
-        });
+        };
+
+        bg.once("pointerdown", skipHandler);
+        this.input.keyboard?.once("keydown", skipHandler);
     }
 
     private startIntroSequence(): void {
@@ -64,8 +70,10 @@ export class MainMenuScene extends Phaser.Scene {
         const newGameMessage = localStorage.getItem("newGameCreatedMessage");
         const messageToShow = loadedMessage || newGameMessage;
 
+        let messageText: Phaser.GameObjects.Text | null = null;
+
         if (messageToShow) {
-            const messageText = this.add.text(width / 2, height * 0.32, messageToShow, {
+            messageText = this.add.text(width / 2, height * 0.32, messageToShow, {
                 fontSize: "18px",
                 color: "#4ade80",
                 align: "center",
@@ -78,19 +86,53 @@ export class MainMenuScene extends Phaser.Scene {
 
             // Hacer que el mensaje desaparezca después de 5 segundos
             this.time.delayedCall(5000, () => {
-                this.tweens.add({
-                    targets: messageText,
-                    alpha: 0,
-                    duration: 500,
-                    onComplete: () => messageText.destroy()
-                });
+                if (messageText && messageText.active) {
+                    this.tweens.add({
+                        targets: messageText,
+                        alpha: 0,
+                        duration: 500,
+                        onComplete: () => messageText?.destroy()
+                    });
+                }
             });
         }
 
-        this.time.delayedCall(26000, () => {
-            introSprite.destroy();
-            MainMenuScene.hasPlayedIntro = true;
+        // Timer para el final automático de la intro
+        const introTimer = this.time.delayedCall(26000, () => {
+            if (introSprite.active) {
+                introSprite.destroy();
+            }
+            localStorage.setItem("hasPlayedIntro", "true");
             this.showMainMenuContent();
+        });
+
+        // Función para skipear la intro
+        const skipIntro = () => {
+            // Remover listeners
+            this.input.keyboard?.off("keydown", skipIntro);
+            this.input.off("pointerdown", skipIntro);
+            
+            // Cancelar el timer
+            introTimer.remove();
+            
+            // Destruir elementos
+            if (introSprite.active) {
+                introSprite.destroy();
+            }
+            if (messageText && messageText.active) {
+                messageText.destroy();
+            }
+            
+            // Marcar como reproducida y mostrar menú
+            localStorage.setItem("hasPlayedIntro", "true");
+            this.showMainMenuContent();
+        };
+
+        // Agregar listeners para skipear después de un pequeño delay
+        // Esto evita que el clic inicial que inicia la intro también la skipee
+        this.time.delayedCall(500, () => {
+            this.input.keyboard?.once("keydown", skipIntro);
+            this.input.once("pointerdown", skipIntro);
         });
     }
 
@@ -166,6 +208,7 @@ export class MainMenuScene extends Phaser.Scene {
     private resetAndStartNewGame(): void {
         // Limpiamos la marca de partida recuperada en localStorage
         localStorage.removeItem("hasLoadedSavedGame");
+        localStorage.removeItem("hasPlayedIntro");
 
         // Guardamos mensaje para mostrar después del reload
         localStorage.setItem("newGameCreatedMessage", "Partida nueva creada. Unite a la partida para comenzar a jugar.");
