@@ -30,6 +30,16 @@ export class SoundManager {
             "unit_destroyed",
             "assets/sounds/649191_ayadrevis_explosion.ogg"
         );
+
+        scene.load.audio(
+            "Intro",
+            "assets/music/Intro_Music.wav"
+        );
+
+        scene.load.audio(
+            "MenuMusic",
+            "assets/music/Main_Menu_Music.wav"
+        );
     }
 
     private playWithCooldown(key: string, volume: number): void {
@@ -60,4 +70,26 @@ export class SoundManager {
         this.playWithCooldown("unit_destroyed", 0.4);
     }
 
+    playIntro(): void {
+        this.scene.sound.play("Intro", { loop: false, volume: 0.5 });
+    }
+
+    playMenuMusic(): void {
+        if (!this.scene.sound.get("MenuMusic")?.isPlaying){
+        this.scene.sound.play("MenuMusic", { loop: true, volume: 0.5 });
+        }
+    }
+
+    stopMusic(): void {
+        if (this.scene.sound.get("MenuMusic")) {
+            this.scene.sound.stopByKey("MenuMusic");
+        }
+        if (this.scene.sound.get("Intro")) {
+            this.scene.sound.stopByKey("Intro");
+        }
+    }
+
+    stopAll(): void {
+        this.scene.sound.stopAll();
+    }
 }

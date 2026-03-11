@@ -27,6 +27,8 @@ export class AnimationManager {
     effectsMS: "effectsMS",
     effectsMI: "effectsMI",
     effectsEX: "effectsEX",
+    IntroGI: "IntroGI",
+    MMenu: "MMenu"
   } as const;
 
   /**
@@ -242,6 +244,33 @@ export class AnimationManager {
         frameWidth: 48,
         frameHeight: 48,
       }
+    );
+
+    scene.load.spritesheet(
+        "GameIntro",
+        "assets/menu/Intro.png",
+        {
+          frameWidth: 720,
+          frameHeight: 480,
+        }
+    );
+
+    scene.load.spritesheet(
+        "MainMenu",
+        "assets/menu/Main_Menu.png",
+        {
+          frameWidth: 720,
+          frameHeight: 480,
+        }
+    );
+
+    scene.load.spritesheet(
+        "TitleMM",
+        "assets/menu/Title.png",
+        {
+          frameWidth: 720,
+          frameHeight: 480,
+        }
     );
   }
 
@@ -480,6 +509,26 @@ export class AnimationManager {
         }),
       frameRate: 6,
       repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.IntroGI,
+      frames: anims.generateFrameNumbers("GameIntro", {
+        start: 0,
+        end: 63,
+      }),
+      frameRate: 2.5,
+      repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.MMenu,
+      frames: anims.generateFrameNumbers("MainMenu", {
+        start: 0,
+        end: 79,
+      }),
+      frameRate: 2.5,
+      repeat: -1,
     });
   }
 }

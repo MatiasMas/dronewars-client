@@ -42,7 +42,8 @@ export class JoinGameScene extends Phaser.Scene {
         this.createButton("Volver al menú", height - 90, () => {
             this.detachLobbyListeners();
             this.websocketClient?.disconnect();
-            this.scene.start("MainMenuScene");
+            // Recargar la página para limpiar completamente el estado después de una partida
+            window.location.reload();
         });
 
         // Si LoadGameScene nos pasó un websocketClient ya conectado, lo reutilizamos
