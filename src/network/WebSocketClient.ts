@@ -10,7 +10,7 @@ export class WebSocketClient {
   private eventListeners: Map<string, EventCallback[]> = new Map();
   private isConnected: boolean = false;
 
-  constructor(url: string = 'ws://192.168.1.87:8081/game') {
+  constructor(url: string = 'ws://192.168.1.5:6969/game') {
     this.url = url;
  }
 
@@ -209,6 +209,34 @@ export class WebSocketClient {
     });
   }
 
+  public solicitarCargarPartidaPorCodigo(codigo: string): void {
+    this.send({
+      type: ClientToServerEvents.LOAD_SAVED_GAME,
+      saveId: codigo,
+    });
+  }
+
+  public solicitarResetJuego(): void {
+    this.send({
+      type: ClientToServerEvents.RESET_GAME,
+    });
+  }
+
+  public solicitarJugadoresDisponibles(): void {
+    this.send({
+      type: ClientToServerEvents.REQUEST_AVAILABLE_PLAYERS,
+    });
+  }
+
+  public enviarPuntajeGanador(nickname: string, score: number, playerId: string): void {
+    this.send({
+      type: ClientToServerEvents.SAVE_WINNER_SCORE,
+      nickname: nickname,
+      score: score,
+      playerId: playerId
+    });
+  }
+
   /*
   * Maneja los mensajes recibidos del servidor
   * Parsea el mensaje y emite el evento a los clientes
@@ -290,11 +318,6 @@ export class WebSocketClient {
         return;
       }
 
-      // Si no coincide con nada específico, envia el tipo recibido a los escuchas.
-      if (data.type) {
-        this.emit(data.type, data);
-      }
-
       if (data.type === ServerToClientEvents.GAME_PAUSE_UPDATED) {
         this.emit(ServerToClientEvents.GAME_PAUSE_UPDATED, data.payload);
         return;
@@ -303,6 +326,16 @@ export class WebSocketClient {
       if (data.type === ServerToClientEvents.SAVE_GAME_RESULT) {
         this.emit(ServerToClientEvents.SAVE_GAME_RESULT, data.payload);
         return;
+      }
+
+      if (data.type === ServerToClientEvents.SAVED_GAME_LOADED) {
+        this.emit(ServerToClientEvents.SAVED_GAME_LOADED, data.payload);
+        return;
+      }
+
+      // Fallback genérico
+      if (data.type) {
+        this.emit(data.type, data);
       }
 
     } catch (err) {

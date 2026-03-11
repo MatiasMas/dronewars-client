@@ -1,4 +1,5 @@
 import Phaser from "phaser";
+import { WebSocketClient } from "../network/WebSocketClient";
 import { SoundManager } from "../managers/SoundManager";
 import { AnimationManager } from "../managers/AnimationManager";
 
@@ -58,6 +59,34 @@ export class MainMenuScene extends Phaser.Scene {
         introSprite.setDisplaySize(width, height);
         introSprite.play(AnimationManager.KEYS.IntroGI);
 
+        // Mostrar mensaje de carga exitosa si existe
+        const loadedMessage = localStorage.getItem("savedGameLoadedMessage");
+        const newGameMessage = localStorage.getItem("newGameCreatedMessage");
+        const messageToShow = loadedMessage || newGameMessage;
+
+        if (messageToShow) {
+            const messageText = this.add.text(width / 2, height * 0.32, messageToShow, {
+                fontSize: "18px",
+                color: "#4ade80",
+                align: "center",
+                wordWrap: { width: width * 0.8 }
+            }).setOrigin(0.5);
+
+            // Remover los mensajes después de mostrarlos
+            localStorage.removeItem("savedGameLoadedMessage");
+            localStorage.removeItem("newGameCreatedMessage");
+
+            // Hacer que el mensaje desaparezca después de 5 segundos
+            this.time.delayedCall(5000, () => {
+                this.tweens.add({
+                    targets: messageText,
+                    alpha: 0,
+                    duration: 500,
+                    onComplete: () => messageText.destroy()
+                });
+            });
+        }
+
         this.time.delayedCall(26000, () => {
             introSprite.destroy();
             MainMenuScene.hasPlayedIntro = true;
@@ -76,20 +105,29 @@ export class MainMenuScene extends Phaser.Scene {
 
         const startY = height * 0.65;
         const gap = 58;
+        const hasLoadedSavedGame = localStorage.getItem("hasLoadedSavedGame") === "true";
+        let row = 0;
 
-        this.createButton("Unirse a una partida", startY + gap * 0, () => {
+        if (hasLoadedSavedGame) {
+            this.createButton("Comenzar nueva partida", startY + gap * row++, () => this.resetAndStartNewGame());
+        }
+        this.createButton("Unirse a una partida", startY + gap * row++, () => {
             this.soundManager.stopMusic();
             this.scene.start("JoinGameScene");
         });
-        this.createButton("Cargar partida guardada", startY + gap * 1, () => {
+        this.createButton("Cargar partida guardada", startY + gap * row++, () => {
             this.soundManager.stopMusic();
             this.scene.start("LoadGameScene");
         });
-        this.createButton("Consultar ranking", startY + gap * 2, () => {
+        this.createButton("Consultar ranking", startY + gap * row++, () => {
             this.soundManager.stopMusic();
             this.scene.start("RankingScene");
         });
-        this.createButton("Salir del juego", startY + gap * 3, () => this.exitGame());
+        this.createButton("Instrucciones", startY + gap * row++, () => {
+            this.soundManager.stopMusic();
+            this.scene.start("InstructionsScene", {source: "main-menu"});
+        });
+        this.createButton("Salir del juego", startY + gap * row, () => this.exitGame());
     }
 
     private createButton(label: string, y: number, onClick: () => void): void {
@@ -124,5 +162,29 @@ export class MainMenuScene extends Phaser.Scene {
             `;
         }
     }
-}
 
+    private resetAndStartNewGame(): void {
+        // Limpiamos la marca de partida recuperada en localStorage
+        localStorage.removeItem("hasLoadedSavedGame");
+
+        // Guardamos mensaje para mostrar después del reload
+        localStorage.setItem("newGameCreatedMessage", "Partida nueva creada. Unite a la partida para comenzar a jugar.");
+
+        // Enviamos RESET_GAME al servidor en un WebSocket efímero
+        const client = new WebSocketClient();
+        client.connect()
+            .then(() => {
+                client.solicitarResetJuego();
+
+                // Dar tiempo al servidor para procesar el reset antes de recargar
+                setTimeout(() => {
+                    client.disconnect();
+                    window.location.reload();
+                }, 500);
+            })
+            .catch(() => {
+                // Si falla la conexión, recargar de todas formas
+                window.location.reload();
+            });
+    }
+}
