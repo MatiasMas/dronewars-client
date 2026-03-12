@@ -1,38 +1,173 @@
 import Phaser from "phaser";
+import { WebSocketClient } from "../network/WebSocketClient";
+import { SoundManager } from "../managers/SoundManager";
+import { AnimationManager } from "../managers/AnimationManager";
 
 export class MainMenuScene extends Phaser.Scene {
+    private soundManager!: SoundManager;
+
     constructor() {
         super("MainMenuScene");
     }
 
+    preload(): void {
+        SoundManager.preload(this);
+        AnimationManager.preload(this);
+    }
+
     create(): void {
-        const {width, height} = this.scale;
+        const { width, height } = this.scale;
+        this.soundManager = new SoundManager(this);
+        AnimationManager.createAnimations(this);
 
-        this.add.rectangle(width / 2, height / 2, width, height, 0x0f172a);
+        // Verificar si ya se reprodujo la intro (en localStorage o en la sesión actual)
+        const hasPlayedIntro = localStorage.getItem("hasPlayedIntro") === "true";
 
-        this.add.text(width / 2, height * 0.18, "DroneWars", {
-            fontSize: "52px",
-            color: "#ffffff",
-            fontStyle: "bold"
-        }).setOrigin(0.5);
+        if (!hasPlayedIntro) {
+            this.showInitialClickScreen();
+        } else {
+            this.showMainMenuContent();
+        }
+    }
 
-        this.add.text(width / 2, height * 0.26, "Menú principal", {
-            fontSize: "28px",
-            color: "#a5b4fc",
-        }).setOrigin(0.5);
+    private showInitialClickScreen(): void {
+        const { width, height } = this.scale;
 
-        const startY = height * 0.38;
-        const gap = 64;
+        const bg = this.add.rectangle(width / 2, height / 2, width, height, 0x000000).setInteractive();
 
-        this.createButton("Crear nueva partida", startY + gap * 0, () => this.scene.start("CreateGameScene"));
-        this.createButton("Unirse a una partida", startY + gap * 1, () => this.scene.start("JoinGameScene"));
-        this.createButton("Cargar partida guardada", startY + gap * 2, () => this.scene.start("LoadGameScene"));
-        this.createButton("Consultar ranking", startY + gap * 3, () => this.scene.start("RankingScene"));
-        this.createButton("Salir del juego", startY + gap * 4, () => this.exitGame());
+        const titleImg = this.add.sprite(width / 2, height / 2, "TitleMM");
+
+        this.tweens.add({
+            targets: titleImg,
+            alpha: 0.5,
+            duration: 1000,
+            yoyo: true,
+            repeat: -1
+        });
+
+        const skipHandler = () => {
+            titleImg.destroy();
+            bg.destroy();
+            this.input.keyboard?.off("keydown", skipHandler);
+            this.startIntroSequence();
+        };
+
+        bg.once("pointerdown", skipHandler);
+        this.input.keyboard?.once("keydown", skipHandler);
+    }
+
+    private startIntroSequence(): void {
+        const { width, height } = this.scale;
+
+        this.soundManager.playIntro();
+
+        const introSprite = this.add.sprite(width / 2, height / 2, "GameIntro");
+        introSprite.setDisplaySize(width, height);
+        introSprite.play(AnimationManager.KEYS.IntroGI);
+
+        const loadedMessage = localStorage.getItem("savedGameLoadedMessage");
+        const newGameMessage = localStorage.getItem("newGameCreatedMessage");
+        const messageToShow = loadedMessage || newGameMessage;
+
+        let messageText: Phaser.GameObjects.Text | null = null;
+
+        if (messageToShow) {
+            messageText = this.add.text(width / 2, height * 0.32, messageToShow, {
+                fontSize: "18px",
+                color: "#4ade80",
+                align: "center",
+                wordWrap: { width: width * 0.8 }
+            }).setOrigin(0.5);
+
+            // Remover los mensajes después de mostrarlos
+            localStorage.removeItem("savedGameLoadedMessage");
+            localStorage.removeItem("newGameCreatedMessage");
+
+            // Hacer que el mensaje desaparezca después de 5 segundos
+            this.time.delayedCall(5000, () => {
+                if (messageText && messageText.active) {
+                    this.tweens.add({
+                        targets: messageText,
+                        alpha: 0,
+                        duration: 500,
+                        onComplete: () => messageText?.destroy()
+                    });
+                }
+            });
+        }
+
+        const introTimer = this.time.delayedCall(26000, () => {
+            if (introSprite.active) {
+                introSprite.destroy();
+            }
+            localStorage.setItem("hasPlayedIntro", "true");
+            this.showMainMenuContent();
+        });
+
+        // Función para skipear la intro
+        const skipIntro = () => {
+            // Remover listeners
+            this.input.keyboard?.off("keydown", skipIntro);
+            this.input.off("pointerdown", skipIntro);
+            
+            introTimer.remove();
+            
+            if (introSprite.active) {
+                introSprite.destroy();
+            }
+            if (messageText && messageText.active) {
+                messageText.destroy();
+            }
+            
+            // Marcar como reproducida y mostrar menú
+            localStorage.setItem("hasPlayedIntro", "true");
+            this.showMainMenuContent();
+        };
+
+        this.time.delayedCall(500, () => {
+            this.input.keyboard?.once("keydown", skipIntro);
+            this.input.once("pointerdown", skipIntro);
+        });
+    }
+
+    private showMainMenuContent(): void {
+        const { width, height } = this.scale;
+
+        this.soundManager.stopMusic();
+        this.soundManager.playMenuMusic();
+        const menuBg = this.add.sprite(width / 2, height / 2, "MainMenu");
+        menuBg.setDisplaySize(width, height);
+        menuBg.play(AnimationManager.KEYS.MMenu);
+
+        const startY = height * 0.65;
+        const gap = 58;
+        const hasLoadedSavedGame = localStorage.getItem("hasLoadedSavedGame") === "true";
+        let row = 0;
+
+        if (hasLoadedSavedGame) {
+            this.createButton("Comenzar nueva partida", startY + gap * row++, () => this.resetAndStartNewGame());
+        }
+        this.createButton("Unirse a una partida", startY + gap * row++, () => {
+            this.soundManager.stopMusic();
+            this.scene.start("JoinGameScene");
+        });
+        this.createButton("Cargar partida guardada", startY + gap * row++, () => {
+            this.soundManager.stopMusic();
+            this.scene.start("LoadGameScene");
+        });
+        this.createButton("Consultar ranking", startY + gap * row++, () => {
+            this.soundManager.stopMusic();
+            this.scene.start("RankingScene");
+        });
+        this.createButton("Instrucciones", startY + gap * row++, () => {
+            this.soundManager.stopMusic();
+            this.scene.start("InstructionsScene", {source: "main-menu"});
+        });
+        this.createButton("Salir del juego", startY + gap * row, () => this.exitGame());
     }
 
     private createButton(label: string, y: number, onClick: () => void): void {
-        const {width} = this.scale;
+        const { width } = this.scale;
         const buttonWidth = Math.min(460, width * 0.7);
         const buttonHeight = 48;
 
@@ -44,25 +179,47 @@ export class MainMenuScene extends Phaser.Scene {
             color: "#e2e8f0"
         }).setOrigin(0.5);
 
-        bg.setInteractive({useHandCursor: true})
+        bg.setInteractive({ useHandCursor: true })
             .on("pointerover", () => bg.setFillStyle(0x334155))
             .on("pointerout", () => bg.setFillStyle(0x1e293b))
             .on("pointerdown", onClick);
 
-        text.setInteractive({useHandCursor: true}).on("pointerdown", onClick);
+        text.setInteractive({ useHandCursor: true }).on("pointerdown", onClick);
     }
 
     private exitGame(): void {
         const parent = (this.game.canvas as HTMLCanvasElement | null)?.parentElement;
         this.game.destroy(true);
-
         if (parent) {
             parent.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f172a;color:#e2e8f0;font-family:sans-serif;">
-      Juego cerrado
-    </div>
-  `;
+                <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#0f172a;color:#e2e8f0;font-family:sans-serif;">
+                  Juego cerrado
+                </div>
+            `;
         }
     }
-}
 
+    private resetAndStartNewGame(): void {
+        // Limpiamos la marca de partida recuperada en localStorage
+        localStorage.removeItem("hasLoadedSavedGame");
+        localStorage.removeItem("hasPlayedIntro");
+
+        // Guardamos mensaje para mostrar despues del reload
+        localStorage.setItem("newGameCreatedMessage", "Partida nueva creada. Unite a la partida para comenzar a jugar.");
+
+        const client = new WebSocketClient();
+        client.connect()
+            .then(() => {
+                client.solicitarResetJuego();
+
+                setTimeout(() => {
+                    client.disconnect();
+                    window.location.reload();
+                }, 500);
+            })
+            .catch(() => {
+                // Si falla la conexión, recargar de todas formas
+                window.location.reload();
+            });
+    }
+}

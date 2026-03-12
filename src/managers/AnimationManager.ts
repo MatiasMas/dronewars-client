@@ -27,19 +27,20 @@ export class AnimationManager {
     effectsMS: "effectsMS",
     effectsMI: "effectsMI",
     effectsEX: "effectsEX",
+    IntroGI: "IntroGI",
+    MMenu: "MMenu"
   } as const;
 
-  /**
-   * Carga todos los spritesheets necesarios para las animaciones.
-   * Se llama desde el preload de la GameScene.
-   */
+  //Carga de los spritesheets necesarios para las animaciones.
+  //Se llama desde el preload de la GameScene.
+
   static preload(scene: Phaser.Scene): void {
     scene.load.spritesheet(
       "droneChinoMovLateral",
       "assets/drone/chinese/Dron_Chino_Movimiento_Lateral.png",
       {
         frameWidth: 48,
-        frameHeight: 18,
+        frameHeight: 48,
       }
     );
 
@@ -243,12 +244,38 @@ export class AnimationManager {
         frameHeight: 48,
       }
     );
+
+    scene.load.spritesheet(
+        "GameIntro",
+        "assets/menu/Intro.png",
+        {
+          frameWidth: 720,
+          frameHeight: 480,
+        }
+    );
+
+    scene.load.spritesheet(
+        "MainMenu",
+        "assets/menu/Main_Menu.png",
+        {
+          frameWidth: 720,
+          frameHeight: 480,
+        }
+    );
+
+    scene.load.spritesheet(
+        "TitleMM",
+        "assets/menu/Title.png",
+        {
+          frameWidth: 720,
+          frameHeight: 480,
+        }
+    );
   }
 
-  /**
-   * Registra todas las animaciones en el AnimationManager.
-   * Se llama desde el create de la GameScene.
-   */
+  //Registro todas las animaciones.
+  //Se llaman desde el create de la GameScene.
+
   static createAnimations(scene: Phaser.Scene): void {
     const anims = scene.anims;
 
@@ -480,6 +507,26 @@ export class AnimationManager {
         }),
       frameRate: 6,
       repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.IntroGI,
+      frames: anims.generateFrameNumbers("GameIntro", {
+        start: 0,
+        end: 63,
+      }),
+      frameRate: 2.5,
+      repeat: 0,
+    });
+
+    anims.create({
+      key: this.KEYS.MMenu,
+      frames: anims.generateFrameNumbers("MainMenu", {
+        start: 0,
+        end: 79,
+      }),
+      frameRate: 2.5,
+      repeat: -1,
     });
   }
 }

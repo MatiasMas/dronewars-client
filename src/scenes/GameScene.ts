@@ -2,6 +2,7 @@ import {WebSocketClient} from "../network/WebSocketClient";
 import {SelectionManager} from "../managers/SelectionManager";
 import {AnimationManager} from "../managers/AnimationManager";
 import {HighScoreManager} from "../managers/HighScoreManager";
+import {SoundManager} from "../managers/SoundManager";
 import {ClientInternalEvents, ServerToClientEvents} from "../types/CommunicationEvents";
 import {IUnit} from "../types/IUnit";
 import {IAvailablePlayer} from "../types/IAvailablePlayer";
@@ -13,6 +14,7 @@ import { IMisilDisparado } from "../types/IMisilDisparado";
 import { IMisilImpactado } from "../types/IMisilImpactado";
 import { IMisilActualizado } from "../types/IMisilActualizado";
 import { IGameEnded } from "../types/IGameEnded";
+import { ISideViewUnit } from "../types/ISideViewUnit";
 
 type UnitVisual = {
   container: Phaser.GameObjects.Container;
@@ -22,10 +24,18 @@ type UnitVisual = {
 
 type GameSceneInitData = {
   preferredPlayerId?: string;
+  websocketClient?: WebSocketClient;
+  preRegistered?: boolean;
+};
+
+type UnitDestroyedPayload = {
+  unitId?: string;
 };
 
 export class GameScene extends Phaser.Scene {
   private websocketClient: WebSocketClient | null = null;
+  private statsDroneSprite!: Phaser.GameObjects.Sprite;
+  private soundManager!: SoundManager;
   private highScoreManager: HighScoreManager = new HighScoreManager();
   private playerScore: number = 0;
   private static readonly SCORE_DRONE: number = 10;
@@ -62,6 +72,7 @@ export class GameScene extends Phaser.Scene {
   private armamentoPlayerText: Phaser.GameObjects.Text | null = null;
   private armamentoEnemyText: Phaser.GameObjects.Text | null = null;
   private ammoByUnitId: Map<string, number> = new Map();
+  private carrierAmmoByUnitId: Map<string, number> = new Map();
   private botonRecargaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonRecarga: Phaser.GameObjects.Text | null = null;
   private fondoBotonRecarga: Phaser.GameObjects.Rectangle | null = null;
@@ -75,7 +86,18 @@ export class GameScene extends Phaser.Scene {
   private timerPortadronesActivo: boolean = false;
   private timerPortadronesObjetivoTexto: string = '';
   private avisoPausaContenedor: Phaser.GameObjects.Container | null = null;
-  /** Centrar cámara en este punto en el próximo frame (al recibir unidades). */
+  private sidebarUnidades: ISideViewUnit[] = [];
+  private sidebarUnidadesPorId: Map<string, ISideViewUnit> = new Map();
+  private sidebarMezclaAlertaPorUnidad: Map<string, number> = new Map();
+  private sidebarElementos: Phaser.GameObjects.GameObject[] = [];
+  private sidebarUnidadSeleccionadaId: string | null = null;
+  private sidebarNecesitaRender: boolean = true;
+  private tweenCamaraSeleccion: Phaser.Tweens.Tween | null = null;
+  private vistaLateralInferiorUnidades: ISideViewUnit[] = [];
+  private vistaLateralInferiorGraphics: Phaser.GameObjects.Graphics | null = null;
+  private vistaLateralInferiorEtiquetasAltitud: Phaser.GameObjects.Text[] = [];
+  private vistaLateralInferiorPuntos: Map<string, Phaser.GameObjects.Container> = new Map();
+  // Centrar cámara en este punto en el próximo frame (al recibir unidades).
   private pendingCameraCenter: { x: number; y: number } | null = null;
 
   // Límites del mapa (mundo grande; el viewport solo muestra una parte y sigue a la unidad seleccionada)
@@ -85,8 +107,26 @@ export class GameScene extends Phaser.Scene {
   private static readonly MAP_MAX_Y = 2500;
   private static readonly MAP_MIN_Z = 0;
   private static readonly MAP_MAX_Z = 10;
-  private static readonly MAP_MAX_Z_MISILES = 8;
-  private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.005;
+  private static readonly MAP_MAX_Z_MISILES = 10;
+  private static readonly MAP_MAX_Z_BONUS_FACTOR = 1.01;
+  private static readonly PANEL_DRONES_RATIO_ANCHO = 0.2;
+  private static readonly PANEL_LATERAL_RATIO_ALTO = 0.2;
+  private static readonly SIDEBAR_MARGEN_INTERNO = 12;
+  private static readonly SIDEBAR_ALTO_CABECERA = 48;
+  private static readonly SIDEBAR_COLUMNAS = 2;
+  private static readonly SIDEBAR_ESPACIO_GRID = 8;
+  private static readonly SIDEBAR_LADO_CUADRO_BASE = 92;
+  private static readonly SIDEBAR_COLOR_FONDO_NORMAL = 0x121a2c;
+  private static readonly SIDEBAR_COLOR_FONDO_ALERTA = 0x2a1a10;
+  private static readonly SIDEBAR_COLOR_FONDO_DESTRUIDA = 0x505050;
+  private static readonly SIDEBAR_COLOR_BORDE_NORMAL = 0x2f4d8c;
+  private static readonly SIDEBAR_COLOR_BORDE_ALERTA = 0xff8c00;
+  private static readonly SIDEBAR_COLOR_BORDE_DESTRUIDA = 0xb5b5b5;
+  private static readonly SIDEBAR_COLOR_DETALLE_NORMAL = 0x93c5fd;
+  private static readonly SIDEBAR_COLOR_DETALLE_ALERTA = 0xffb347;
+  private static readonly SIDEBAR_COLOR_DETALLE_DESTRUIDA = 0xd0d0d0;
+  private static readonly SIDEBAR_FACTOR_LERP_ALERTA = 0.012;
+  private static readonly PANEL_INFERIOR_PADDING = 20;
 
 
   private static readonly MOVE_STEP = 5;
@@ -95,15 +135,17 @@ export class GameScene extends Phaser.Scene {
   private static readonly ALTITUDE_SCROLL_MAX_DELTA = 0.6;
   private static readonly ALTITUDE_SCROLL_REPEAT_MS = 45;
   private static readonly MOVE_REPEAT_MS = 120;
-  private static readonly VELOCIDAD_CAMARA = 10;
+  private static readonly VELOCIDAD_CAMARA = 20;
   private static readonly AJUSTE_ROTACION_FRENTE_RAD = 0;
   private static readonly RANGO_RECARGA_MUNDO = 120;
   private static readonly RANGO_DISPARO_MISIL = 30;
   private static readonly BOMBAS_POR_DRON = 1;
   private static readonly MISILES_POR_DRON = 2;
+  private static readonly AERIAL_CARRIER_MAX_AMMO = 30;
+  private static readonly NAVAL_CARRIER_MAX_AMMO = 60;
   private static readonly CUENTA_REGRESIVA_PORTADRONES_MS = 2 * 60 * 1000;
 
-  //Visibilidad
+  // Visibilidad
   private static readonly RANGO_VISION_BOMBAS = 400;
   private static readonly RANGO_VISION_MISILES = GameScene.RANGO_VISION_BOMBAS * 0.5;
   private static readonly FACTOR_VISION_MIN_Z = 0.7;
@@ -112,11 +154,13 @@ export class GameScene extends Phaser.Scene {
   private capaNiebla: Phaser.GameObjects.Graphics | null = null;
   private mascaraVision: Phaser.GameObjects.Graphics | null = null;
 
-  //Pausa
+  // Pausa
   private partidaPausada: boolean = false;
   private menuPausaVisible: boolean = false;
   private menuPausaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonPausarMenu: Phaser.GameObjects.Text | null = null;
+  private codigoGuardadoTexto: Phaser.GameObjects.Text | null = null;
+  private codigoGuardadoActual: string = '';
   private botonesMenuPausa: Array<{
     x: number;
     y: number;
@@ -132,11 +176,13 @@ export class GameScene extends Phaser.Scene {
   preload(): void {
     this.load.image('ocean', 'images/ocean.png');
     AnimationManager.preload(this);
+    SoundManager.preload(this);
   }
 
 
   async create(data: GameSceneInitData = {}) {
     console.log("[GameScene] Creating scene...");
+    this.soundManager = new SoundManager(this);
     AnimationManager.createAnimations(this);
 
     // Creando imagen de background
@@ -165,44 +211,57 @@ export class GameScene extends Phaser.Scene {
     );
 
     // Limitar el viewport de la cámara principal al 80% superior
-    const panelH = Math.floor(this.scale.height * 0.2);
-    this.cameras.main.setViewport(0, 0, this.scale.width, this.scale.height - panelH);
+    this.aplicarLayoutConPaneles();
+    this.scale.on('resize', this.aplicarLayoutConPaneles, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.scale.off('resize', this.aplicarLayoutConPaneles, this);
+      this.tweenCamaraSeleccion?.stop();
+      this.tweenCamaraSeleccion = null;
+      this.limpiarSidebarUI();
+      this.limpiarVistaLateralInferiorUI();
+      this.soundManager?.stopBackgroundMusic();
+    });
 
-    //Lanzamos panel de altura en pantalla
-    this.scene.launch('SideViewScene');
+    this.websocketClient = data.websocketClient ?? new WebSocketClient();
 
-    this.websocketClient = new WebSocketClient();
-
-    try {
-      // Configurando escuchas del websocket
-      await this.websocketClient.connect();
-    } catch (err) {
-      console.error("[GameScene] Error connecting to server:", err);
-      this.showError("Error connecting to server");
-      return;
+    if (!this.websocketClient.isConnectedToServer()) {
+      try {
+        // Configurando listeners basicos del websocket
+        await this.websocketClient.connect();
+      } catch (err) {
+        console.error("[GameScene] Error connecting to server:", err);
+        this.showError("Error connecting to server");
+        return;
+      }
     }
 
     this.selectionManager = new SelectionManager();
     this.setupEventListeners();
 
-    // Registrando jugador en el servidor y esperando confirmacion
-    await this.waitForAvailablePlayers();
-
-    // Seleccionando el primer jugador disponible y registrandolo en el servidor
     const preferredFromRegistry = this.registry.get("preferredPlayerId");
     const preferredPlayerId = (data.preferredPlayerId ?? preferredFromRegistry) as string | undefined;
-    const selectedPlayerId = this.selectPreferredOrFirstAvailablePlayer(preferredPlayerId);
+    const usingPreRegisteredSession = data.preRegistered === true;
 
-    if (!selectedPlayerId) {
-      this.showError('No players available');
-      return;
+    if (!usingPreRegisteredSession) {
+      // Registrando jugador en el servidor y esperando confirmacion
+      await this.waitForAvailablePlayers();
+
+      // Seleccionando el primer jugador disponible y registrandolo en el servidor
+      const selectedPlayerId = this.selectPreferredOrFirstAvailablePlayer(preferredPlayerId);
+
+      if (!selectedPlayerId) {
+        this.showError('No players available');
+        return;
+      }
+
+      this.websocketClient.registerPlayer(selectedPlayerId);
+      await this.waitForPlayerRegistration();
     }
 
-
-    this.websocketClient.registerPlayer(selectedPlayerId);
-    await this.waitForPlayerRegistration();
-
     this.websocketClient.requestPlayerUnits();
+
+    // Arranca música de fondo
+    this.soundManager.playBackgroundMusic();
 
     this.drawUI();
     this.crearMenuPausa();
@@ -248,8 +307,9 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
+      // evita disparos multiples por dejar apretada la tecla
       if (evento.repeat) {
-        return; // evita disparos multiples por dejar apretada la tecla
+        return;
       }
 
       const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
@@ -337,10 +397,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /*
-  * Configura que hacer al recibir mensajes del servidor
-  * Define los eventos del websocket
-  */
+  // Define que hacer en funcion del mensaje recibido del servidor
   private setupEventListeners(): void {
     if (!this.websocketClient || !this.selectionManager) return;
 
@@ -382,12 +439,22 @@ export class GameScene extends Phaser.Scene {
         ? payload.message
         : (ok ? 'Partida guardada' : 'No se pudo guardar la partida');
 
-      this.showError(message);
+      if (ok && typeof payload?.codigoUnico === 'string') {
+        const codigo = payload.codigoUnico as string;
+        console.log("[GameScene] Partida guardada con codigo:", codigo);
+        // Guardamos el código y actualizamos el texto en el menú de pausa
+        this.codigoGuardadoActual = codigo;
+        this.actualizarTextoCodigoGuardado();
+        this.showError(`Partida guardada.\nCódigo: ${codigo}`);
+      } else {
+        this.showError(message);
+      }
     });
 
     this.selectionManager.on(ClientInternalEvents.SELECTION_CLEARED, () => {
       this.clearSelectionHighlight()
       this.updateSelectedUnitCoordsText()
+      this.emitirSeleccionParaSidebar(null);
     })
 
     // El servidor confirma la seleccion de unidad
@@ -398,10 +465,33 @@ export class GameScene extends Phaser.Scene {
       this.updateSelectedUnitCoordsText();
     });
 
+    this.websocketClient.on(ServerToClientEvents.UNIT_DESTROYED, (payload: UnitDestroyedPayload | string) => {
+      const unitId = typeof payload === 'string' ? payload : payload?.unitId;
+      if (!unitId) {
+        return;
+      }
+
+      this.removeUnitImmediately(unitId);
+    });
+
     // Hubo un error en el servidor
-    this.websocketClient.on(ServerToClientEvents.SERVER_ERROR, (errorMessage: string) => {
+    this.websocketClient.on(ServerToClientEvents.SERVER_ERROR, (errorPayload: unknown) => {
+      const errorMessage = this.extractServerErrorMessage(errorPayload);
       console.error(`[GameScene] Server error: ${errorMessage}`);
       this.showError(errorMessage);
+
+      if (errorMessage.toLowerCase().includes('unidad no encontrada')) {
+        const unitId = this.extractUnitIdFromServerError(errorPayload)
+          ?? this.selectionManager?.getSelectedUnit()?.unitId
+          ?? null;
+
+        if (unitId) {
+          this.removeUnitImmediately(unitId);
+        } else {
+          this.selectionManager?.deselectUnit();
+          this.updateSelectedUnitCoordsText();
+        }
+      }
     });
 
     this.websocketClient.on(ServerToClientEvents.MOVE_ACCEPTED, (unitId: string) => {
@@ -409,7 +499,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.websocketClient.on(ServerToClientEvents.GAME_STATE_UPDATE, (unitPositions: IUnitPosition[]) => {
-      this.syncUnitPositions(unitPositions);
+      this.syncUnitPositions(unitPositions ?? []);
     });
 
     this.websocketClient.on(ServerToClientEvents.MUNICION_RECARGADA, (payload: any) => {
@@ -420,10 +510,14 @@ export class GameScene extends Phaser.Scene {
       console.log(`[GameScene] Selection changed: ${unit.unitId}, sendind selection to server...`);
       this.websocketClient?.requestUnitSelection(unit.unitId);
       this.updateSelectedUnitCoordsText();
+      this.emitirSeleccionParaSidebar(unit.unitId);
+      const unidad = this.knownUnits.get(unit.unitId) ?? unit;
+      this.pendingCameraCenter = { x: unidad.x, y: unidad.y };
     });
 
-    this.selectionManager.on(ClientInternalEvents.SELECTION_CONFIRMED, () => {
+    this.selectionManager.on(ClientInternalEvents.SELECTION_CONFIRMED, (unit: IUnit) => {
       this.updateSelectedUnitCoordsText();
+      this.emitirSeleccionParaSidebar(unit.unitId);
     });
 
     this.selectionManager.on(ClientInternalEvents.UNITS_UPDATED, () => {
@@ -455,19 +549,74 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  update(_time: number): void {
-    // Centrado inicial: aplicar siempre al inicio, antes de cualquier return
+  private seleccionarUnidadDesdeSidebar(unitId: string): void {
+    if (!unitId || !this.selectionManager) {
+      return;
+    }
+
+    const unidadSeleccionada = this.selectionManager.selectUnit(unitId);
+    if (!unidadSeleccionada) {
+      return;
+    }
+
+    const unidad = this.knownUnits.get(unitId) ?? unidadSeleccionada;
+    this.pendingCameraCenter = { x: unidad.x, y: unidad.y };
+    this.emitirSeleccionParaSidebar(unitId);
+  }
+
+  private ciclarSeleccionUnidades(direccion: number): void {
+    if (!this.selectionManager) {
+      return;
+    }
+
+    const unidadesVivas = this.selectionManager
+      .getPlayerUnits()
+      .filter(unidad => {
+        const actual = this.knownUnits.get(unidad.unitId) ?? unidad;
+        return actual.health > 0;
+      });
+
+    if (unidadesVivas.length === 0) {
+      return;
+    }
+
+    const seleccionActualId = this.selectionManager.getSelectedUnit()?.unitId ?? null;
+    const indiceActual = unidadesVivas.findIndex(unidad => unidad.unitId === seleccionActualId);
+    const indiceBase = indiceActual >= 0 ? indiceActual : (direccion > 0 ? -1 : 0);
+    const siguienteIndice = Phaser.Math.Wrap(indiceBase + direccion, 0, unidadesVivas.length);
+    const unidadObjetivo = unidadesVivas[siguienteIndice];
+
+    const unidadSeleccionada = this.selectionManager.selectUnit(unidadObjetivo.unitId);
+    if (!unidadSeleccionada) {
+      return;
+    }
+
+    const unidadMapa = this.knownUnits.get(unidadObjetivo.unitId) ?? unidadSeleccionada;
+    this.pendingCameraCenter = { x: unidadMapa.x, y: unidadMapa.y };
+    this.emitirSeleccionParaSidebar(unidadObjetivo.unitId);
+  }
+
+  private emitirSeleccionParaSidebar(unitId: string | null): void {
+    this.sidebarUnidadSeleccionadaId = unitId;
+    this.sidebarNecesitaRender = true;
+  }
+
+  update(_time: number, delta: number): void {
+    // Centrado inicial de la camara
     if (this.pendingCameraCenter) {
       const cam = this.cameras.main;
       const { x, y } = this.pendingCameraCenter;
       this.pendingCameraCenter = null;
       if (cam.width > 0 && cam.height > 0) {
-        cam.centerOn(x, y);
-        console.log(`[GameScene] Camera centerOn(${x}, ${y}), scroll=(${cam.scrollX}, ${cam.scrollY})`);
+        this.animarCamaraConPanelIzquierdo(x, y);
       }
     }
 
     this.actualizarTimerPortadrones();
+    const sidebarAnimando = this.actualizarLerpSidebar(delta);
+    if (sidebarAnimando || this.sidebarNecesitaRender) {
+      this.renderizarSidebarDrones();
+    }
 
     if (this.partidaPausada || this.menuPausaVisible) { return; }
 
@@ -493,7 +642,7 @@ export class GameScene extends Phaser.Scene {
     this.actualizarEstadoBotonRecarga();
     this.actualizarEstadoBotonMisil();
 
-    // Movimiento por teclado: flechas para unidad + Q/E para altura
+    // Movimiento por teclado
     const unidadSeleccionada = this.selectionManager.getSelectedUnit();
     if (!unidadSeleccionada) {
       this.moverCamaraLibreConWASD();
@@ -546,14 +695,17 @@ export class GameScene extends Phaser.Scene {
     this.clearUnitSprites();
     this.limpiarIndicadoresRecarga();
 
+    // true = unidad propia
     playerUnits.forEach(unit => {
-      this.createUnitSprite(unit, unit.x, unit.y, true);  // true = unidad propia
+      this.createUnitSprite(unit, unit.x, unit.y, true);
     });
 
+    // false = unidad enemiga
     enemyUnits.forEach(unit => {
-      this.createUnitSprite(unit, unit.x, unit.y, false); // false = unidad enemiga
+      this.createUnitSprite(unit, unit.x, unit.y, false);
     });
 
+    this.actualizarEtiquetasUnidadesMapa();
     this.emitirActualizacionDeAltura();
     this.actualizarVisibilidadEnemigos();
     this.actualizarCapaNiebla();
@@ -562,7 +714,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private createUnitSprite(unit: IUnit, x: number, y: number, isPlayerUnit: boolean): void {
-    // x, y = coordenadas MUNDO. El container va en (x,y); los hijos en posiciones RELATIVAS al container (0,0), (0,20)...
+    // x, y = coordenadas del mundo. El container va en (x,y); los hijos en posiciones relativas al container
     const esUnidadJugadorUno = this.esUnidadDeJugador1(unit.unitId);
     const esDron = this.esUnidadDron(unit);
     const esCarrier = this.esPortadrones(unit);
@@ -587,27 +739,30 @@ export class GameScene extends Phaser.Scene {
         textureKey = "carrierPortuguesMovCenital";
       }
     } else {
-      // Fallback muy raro: tipo desconocido, usar un rectángulo simple
+      // Fallback en caso de tipo desconocido, se usa un rectángulo simple
       const fallbackBody = this.add.rectangle(0, 0, 60, 60, this.getUnitColor(unit.type));
       fallbackBody.setInteractive({ useHandCursor: true });
 
-      const fallbackLabel = this.add.text(0, 0, this.getUnitLabel(unit.type), {
+      const fallbackLabel = this.add.text(0, 0, this.obtenerEtiquetaUnidadMapa(unit), {
         fontSize: '12px',
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(fallbackLabel);
 
       const hpTextFallback = this.add.text(0, 20, `HP:${unit.health}`, {
         fontSize: '11px',
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(hpTextFallback);
 
       const fuelTextFallback = this.add.text(0, 32, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
         fontSize: '11px',
         color: '#ffffff',
         align: 'center'
       }).setOrigin(0.5);
+      this.aplicarFondoSuaveTexto(fuelTextFallback);
 
       const fallbackContainer = this.add.container(x, y, [fallbackBody, fallbackLabel, hpTextFallback, fuelTextFallback]);
 
@@ -616,6 +771,9 @@ export class GameScene extends Phaser.Scene {
 
       fallbackBody.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
         if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
+          return;
+        }
+        if (this.pointerEnPanelDrones(pointer) || !this.pointerEnAreaDeMapa(pointer)) {
           return;
         }
 
@@ -642,25 +800,42 @@ export class GameScene extends Phaser.Scene {
     sprite.setScale(2.4, 2.4);
     sprite.play(animKey);
 
-    const label = this.add.text(0, -36, this.getUnitLabel(unit.type), {
+    const label = this.add.text(0, -36, this.obtenerEtiquetaUnidadMapa(unit), {
       fontSize: '12px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(label);
 
     const hpText = this.add.text(0, 28, `HP:${unit.health}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(hpText);
 
-    const fuelText = this.add.text(0, 40, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
+    const fuelText = this.add.text(0, 40, `Combustible:${Math.round(unit.combustible ?? 100)}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
     }).setOrigin(0.5);
+    this.aplicarFondoSuaveTexto(fuelText);
 
     const container = this.add.container(x, y, [sprite, label, hpText, fuelText]);
+
+    let depth = 0;
+
+    if (unit.type === "NAVAL_CARRIER") {
+      depth = 0;
+    }
+    else if (!isPlayerUnit) {
+      depth = 10;
+    }
+    else {
+      depth = 20;
+    }
+
+    container.setDepth(depth);
 
     if (unit.health <= 0) {
       sprite.setTint(0x666666);
@@ -672,6 +847,9 @@ export class GameScene extends Phaser.Scene {
 
     sprite.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
       if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
+        return;
+      }
+      if (this.pointerEnPanelDrones(pointer) || !this.pointerEnAreaDeMapa(pointer)) {
         return;
       }
 
@@ -818,6 +996,21 @@ export class GameScene extends Phaser.Scene {
   }
 
   private syncUnitPositions(unitPositions: IUnitPosition[]): void {
+    const incomingIds = new Set(unitPositions.map(update => update.unitId));
+
+    // si una unidad local del cliente no existe en la informacion recibida del server se elimina para mantener sincronizados ambos lados
+    Array.from(this.unitSprites.keys()).forEach(unitId => {
+      if (!incomingIds.has(unitId)) {
+        this.removeUnitImmediately(unitId);
+      }
+    });
+
+    Array.from(this.knownUnits.keys()).forEach(unitId => {
+      if (!incomingIds.has(unitId)) {
+        this.removeUnitImmediately(unitId);
+      }
+    });
+
     // Sincroniza posiciones de todas las unidades con el estado enviado por el servidor
     unitPositions.forEach(update => {
       const unit = this.knownUnits.get(update.unitId);
@@ -849,19 +1042,199 @@ export class GameScene extends Phaser.Scene {
           );
         }
 
-        // Las coordenadas son del MUNDO, Phaser las renderizará según la cámara
+        // Renderizado del sprite de las unidades segun actualizaciones recibidas del server
         sprite.container.setPosition(update.position.x, update.position.y);
         if (typeof update.combustible === 'number') {
           const fuelLabel = this.unitFuelLabels.get(update.unitId);
           if (fuelLabel) {
-            fuelLabel.setText(`FUEL:${Math.round(update.combustible)}`);
+            fuelLabel.setText(`Combustible:${Math.round(update.combustible)}`);
           }
         }
       } else if (unit) {
-        // Si no existe el sprite, crear uno nuevo
+        // Si no existe el sprite, se crea uno nuevo
         this.createUnitSprite(unit, update.position.x, update.position.y, this.playerUnitIds.has(update.unitId));
       }
     });
+
+    const selectedUnitId = this.selectionManager?.getSelectedUnit()?.unitId;
+    if (selectedUnitId && !incomingIds.has(selectedUnitId)) {
+      this.selectionManager?.deselectUnit();
+    }
+
+    this.updateSelectedUnitCoordsText();
+    this.actualizarIndicadoresRecarga();
+    this.actualizarEstadoBotonRecarga();
+    this.actualizarArmamentoUI();
+    this.actualizarEstadoBotonMisil();
+    this.actualizarEtiquetasUnidadesMapa();
+    this.actualizarVisibilidadEnemigos();
+    this.actualizarCapaNiebla();
+
+    //Se notifica al panel de altura para que actualice ahi tambien
+    this.emitirActualizacionDeAltura()
+  }
+
+  private aplicarLayoutConPaneles(): void {
+    const anchoMapa = Math.max(1, this.scale.width);
+    const altoMapa = Math.max(1, this.scale.height);
+    this.cameras.main.setViewport(0, 0, anchoMapa, altoMapa);
+    this.sidebarNecesitaRender = true;
+    this.redibujarVistaLateralInferiorFondo();
+    this.redibujarVistaLateralInferiorUnidades();
+  }
+
+  private obtenerAnchoPanelDrones(): number {
+    return Math.floor(this.scale.width * GameScene.PANEL_DRONES_RATIO_ANCHO);
+  }
+
+  private obtenerAltoPanelLateral(): number {
+    return Math.floor(this.scale.height * GameScene.PANEL_LATERAL_RATIO_ALTO);
+  }
+
+  private obtenerAltoMapaVisible(): number {
+    return this.scale.height - this.obtenerAltoPanelLateral();
+  }
+
+  private pointerEnAreaDeMapa(pointer: Phaser.Input.Pointer): boolean {
+    return pointer.x >= this.obtenerAnchoPanelDrones()
+      && pointer.y >= 0
+      && pointer.y < this.obtenerAltoMapaVisible();
+  }
+
+  private pointerEnPanelDrones(pointer: Phaser.Input.Pointer): boolean {
+    return pointer.x >= 0
+      && pointer.x < this.obtenerAnchoPanelDrones()
+      && pointer.y >= 0
+      && pointer.y < this.obtenerAltoMapaVisible();
+  }
+
+  private seleccionarDesdeClickSidebar(screenX: number, screenY: number): void {
+    const unidadesPropias = this.obtenerUnidadesSidebarOrdenadas();
+    if (unidadesPropias.length === 0) {
+      return;
+    }
+
+    const anchoPanel = this.obtenerAnchoPanelDrones();
+    const altoPanel = this.obtenerAltoMapaVisible();
+    const margen = GameScene.SIDEBAR_MARGEN_INTERNO;
+    const cabecera = GameScene.SIDEBAR_ALTO_CABECERA;
+    const { ladoCuadro, espacio, offsetY } = this.calcularGridSidebar(unidadesPropias.length, anchoPanel, altoPanel);
+
+    for (let index = 0; index < unidadesPropias.length; index += 1) {
+      const unidad = unidadesPropias[index];
+      const fila = Math.floor(index / GameScene.SIDEBAR_COLUMNAS);
+      const columna = index % GameScene.SIDEBAR_COLUMNAS;
+      const xLeft = margen + columna * (ladoCuadro + espacio);
+      const yTop = cabecera + margen + offsetY + fila * (ladoCuadro + espacio);
+      const dentro = screenX >= xLeft
+        && screenX <= (xLeft + ladoCuadro)
+        && screenY >= yTop
+        && screenY <= (yTop + ladoCuadro);
+      if (!dentro) {
+        continue;
+      }
+
+      if (unidad.health > 0) {
+        this.seleccionarUnidadDesdeSidebar(unidad.unitId);
+      }
+      return;
+    }
+  }
+
+  private calcularScrollCamaraConPanelIzquierdo(objetivoX: number, objetivoY: number): { scrollX: number; scrollY: number } {
+    const camara = this.cameras.main;
+    const anchoPanel = this.obtenerAnchoPanelDrones();
+    const anchoVisibleMapa = this.scale.width - anchoPanel;
+    const altoVisibleMapa = this.obtenerAltoMapaVisible();
+    const centroVisibleX = anchoPanel + (anchoVisibleMapa / 2);
+    const centroVisibleY = altoVisibleMapa / 2;
+    const scrollXDeseado = objetivoX - centroVisibleX;
+    const scrollYDeseado = objetivoY - centroVisibleY;
+
+    const anchoMapa = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
+    const altoMapa = GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y;
+    const maxScrollX = Math.max(GameScene.MAP_MIN_X, GameScene.MAP_MIN_X + anchoMapa - camara.width);
+    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - altoVisibleMapa);
+
+    return {
+      scrollX: Phaser.Math.Clamp(scrollXDeseado, GameScene.MAP_MIN_X, maxScrollX),
+      scrollY: Phaser.Math.Clamp(scrollYDeseado, GameScene.MAP_MIN_Y, maxScrollY)
+    };
+  }
+
+  private centrarCamaraConPanelIzquierdo(objetivoX: number, objetivoY: number): void {
+    const { scrollX, scrollY } = this.calcularScrollCamaraConPanelIzquierdo(objetivoX, objetivoY);
+    this.cameras.main.setScroll(scrollX, scrollY);
+  }
+
+  private animarCamaraConPanelIzquierdo(objetivoX: number, objetivoY: number): void {
+    const camara = this.cameras.main;
+    const { scrollX, scrollY } = this.calcularScrollCamaraConPanelIzquierdo(objetivoX, objetivoY);
+    const distancia = Phaser.Math.Distance.Between(camara.scrollX, camara.scrollY, scrollX, scrollY);
+    if (distancia < 1) {
+      this.tweenCamaraSeleccion?.stop();
+      this.tweenCamaraSeleccion = null;
+      camara.setScroll(scrollX, scrollY);
+      return;
+    }
+
+    this.tweenCamaraSeleccion?.stop();
+    this.tweenCamaraSeleccion = this.tweens.add({
+      targets: camara,
+      scrollX,
+      scrollY,
+      duration: 220,
+      ease: 'Sine.Out',
+      onComplete: () => {
+        this.tweenCamaraSeleccion = null;
+      },
+      onStop: () => {
+        this.tweenCamaraSeleccion = null;
+      }
+    });
+  }
+
+  private removeUnitImmediately(unitId: string): void {
+    const sprite = this.unitSprites.get(unitId);
+    if (sprite) {
+      sprite.container.destroy();
+      this.unitSprites.delete(unitId);
+    }
+
+    const hpLabel = this.unitHealthLabels.get(unitId);
+    if (hpLabel) {
+      hpLabel.destroy();
+      this.unitHealthLabels.delete(unitId);
+    }
+
+    const fuelLabel = this.unitFuelLabels.get(unitId);
+    if (fuelLabel) {
+      fuelLabel.destroy();
+      this.unitFuelLabels.delete(unitId);
+    }
+
+    const indicador = this.indicadoresRecarga.get(unitId);
+    if (indicador) {
+      indicador.destroy();
+      this.indicadoresRecarga.delete(unitId);
+    }
+
+    this.ammoByUnitId.delete(unitId);
+    this.carrierAmmoByUnitId.delete(unitId);
+    this.knownUnits.delete(unitId);
+    this.playerUnitIds.delete(unitId);
+
+    if (this.selectionManager?.getSelectedUnit()?.unitId === unitId) {
+      this.selectionManager.deselectUnit();
+    }
+
+    if (this.selectionManager) {
+      const actualUnits = this.selectionManager.getPlayerUnits();
+      const filteredUnits = actualUnits.filter(unit => unit.unitId !== unitId);
+      if (filteredUnits.length !== actualUnits.length) {
+        this.selectionManager.setPlayerUnits(filteredUnits);
+      }
+    }
 
     this.updateSelectedUnitCoordsText();
     this.actualizarIndicadoresRecarga();
@@ -870,76 +1243,71 @@ export class GameScene extends Phaser.Scene {
     this.actualizarEstadoBotonMisil();
     this.actualizarVisibilidadEnemigos();
     this.actualizarCapaNiebla();
+    this.emitirActualizacionDeAltura();
+  }
 
-    //Se notifica al panel de altura
-    this.emitirActualizacionDeAltura()
+  private extractServerErrorMessage(errorPayload: unknown): string {
+    if (typeof errorPayload === 'string') {
+      return errorPayload;
+    }
+
+    if (errorPayload && typeof errorPayload === 'object') {
+      const payloadObj = errorPayload as { message?: unknown; error?: unknown };
+      if (typeof payloadObj.message === 'string') {
+        return payloadObj.message;
+      }
+      if (typeof payloadObj.error === 'string') {
+        return payloadObj.error;
+      }
+    }
+
+    return 'Error del servidor';
+  }
+
+  private extractUnitIdFromServerError(errorPayload: unknown): string | null {
+    if (!errorPayload || typeof errorPayload !== 'object') {
+      return null;
+    }
+
+    const payloadObj = errorPayload as { unitId?: unknown; data?: { unitId?: unknown } };
+    if (typeof payloadObj.unitId === 'string' && payloadObj.unitId.length > 0) {
+      return payloadObj.unitId;
+    }
+
+    if (typeof payloadObj.data?.unitId === 'string' && payloadObj.data.unitId.length > 0) {
+      return payloadObj.data.unitId;
+    }
+
+    return null;
   }
 
   // ===== METODOS DE CONVERSION MUNDO A PANTALLA =====
 
-  /**
-   * Convierte coordenadas del mundo a pantalla, considerando la posición de la cámara
-   * La cámara está centrada en el dron seleccionado
-   */
-  private mundoAPantalla(worldX: number, worldY: number): { x: number; y: number } {
-    // Obtener la posición de la cámara (centrada en el dron seleccionado)
-    const cameraX = this.cameras.main.scrollX + this.cameras.main.width / 2;
-    const cameraY = this.cameras.main.scrollY + this.cameras.main.height / 2;
-
-    // Convertir coordenadas del mundo a pantalla relativas a la cámara
-    const screenX = worldX - cameraX + this.cameras.main.width / 2;
-    const screenY = worldY - cameraY + this.cameras.main.height / 2;
-
-    return { x: screenX, y: screenY };
-  }
-
-  /**
-   * Convierte coordenadas de pantalla a mundo, considerando la posición de la cámara
-   */
+  // Convierte coordenadas de la pantalla a coordenadas del mundo, considerando donde tenemos la posición de la cámara
   private pantallaAMundo(screenX: number, screenY: number): { x: number; y: number } {
-    // Obtener la posición de la cámara
-    const cameraX = this.cameras.main.scrollX + this.cameras.main.width / 2;
-    const cameraY = this.cameras.main.scrollY + this.cameras.main.height / 2;
+    const puntoMundo = this.cameras.main.getWorldPoint(screenX, screenY);
 
-    // Convertir coordenadas de pantalla a mundo
-    const worldX = screenX - this.cameras.main.width / 2 + cameraX;
-    const worldY = screenY - this.cameras.main.height / 2 + cameraY;
-
-    // Clampear dentro de los límites del mapa
     return {
-      x: Phaser.Math.Clamp(worldX, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X),
-      y: Phaser.Math.Clamp(worldY, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y)
+      x: Phaser.Math.Clamp(puntoMundo.x, GameScene.MAP_MIN_X, GameScene.MAP_MAX_X),
+      y: Phaser.Math.Clamp(puntoMundo.y, GameScene.MAP_MIN_Y, GameScene.MAP_MAX_Y)
     };
   }
 
   /**
-   * Convierte un radio del mundo a píxeles de pantalla
-   */
-  private radioMundoAPantalla(worldRadius: number): number {
-    // Escala basada en el ancho visible
-    const worldWidth = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
-    const screenWidth = this.cameras.main.width;
-    return (worldRadius / worldWidth) * screenWidth;
-  }
-
-  /**
-   * Actualiza la posición de la cámara para seguir la unidad seleccionada.
-   * El viewport muestra solo una parte del mapa; la cámara se desplaza con la unidad.
+   * Actualiza la posicion de la cámara para seguir la unidad seleccionada
+   * El viewport muestra solo una parte del mapa, la camara se desplaza con la unidad
    */
   private actualizarCamara(): void {
     const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
     if (!unidadSeleccionada) {
       return;
     }
+    if (this.tweenCamaraSeleccion?.isPlaying()) {
+      return;
+    }
 
     const unit = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
-    const w = this.cameras.main.width;
-    const h = this.cameras.main.height;
-
-    // Centrar la cámara en la unidad; setBounds ya limita el scroll al área del mapa
-    const scrollX = unit.x - w / 2;
-    const scrollY = unit.y - h / 2;
-    this.cameras.main.setScroll(scrollX, scrollY);
+    this.centrarCamaraConPanelIzquierdo(unit.x, unit.y);
   }
 
   private moverCamaraLibreConWASD(): void {
@@ -970,8 +1338,9 @@ export class GameScene extends Phaser.Scene {
     const camara = this.cameras.main;
     const anchoMapa = GameScene.MAP_MAX_X - GameScene.MAP_MIN_X;
     const altoMapa = GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y;
+    const altoVisibleMapa = this.obtenerAltoMapaVisible();
     const maxScrollX = Math.max(GameScene.MAP_MIN_X, GameScene.MAP_MIN_X + anchoMapa - camara.width);
-    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - camara.height);
+    const maxScrollY = Math.max(GameScene.MAP_MIN_Y, GameScene.MAP_MIN_Y + altoMapa - altoVisibleMapa);
 
     const nuevoScrollX = Phaser.Math.Clamp(camara.scrollX + movimientoX, GameScene.MAP_MIN_X, maxScrollX);
     const nuevoScrollY = Phaser.Math.Clamp(camara.scrollY + movimientoY, GameScene.MAP_MIN_Y, maxScrollY);
@@ -1016,8 +1385,7 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Al inicio del juego, enfoca la cámara en el portadrones del jugador:
-   * Player 1 -> AERIAL_CARRIER, Player 2 -> NAVAL_CARRIER.
-   * Se aplica en el próximo update() para tener dimensiones de cámara válidas.
+   * Player 1 -> Portadrones aereo, Player 2 -> Portadrones naval
    */
   private centrarCamaraEnPortadrones(playerUnits: IUnit[]): void {
     if (!playerUnits?.length) return;
@@ -1042,14 +1410,45 @@ export class GameScene extends Phaser.Scene {
     return colors[type] || 0xffffff;
   }
 
-  private getUnitLabel(type: string): string {
-    const labels: { [key: string]: string } = {
-      'AERIAL_DRONE': 'A.D',
-      'NAVAL_DRONE': 'N.D',
-      'AERIAL_CARRIER': 'A.C',
-      'NAVAL_CARRIER': 'N.C'
-    };
-    return labels[type] || '?';
+  private actualizarEtiquetasUnidadesMapa(): void {
+    const etiquetasPropias = this.obtenerEtiquetasUnidadesPropiasMapa();
+    this.unitSprites.forEach((visual, unitId) => {
+      const unidad = this.knownUnits.get(unitId);
+      if (!unidad) {
+        return;
+      }
+      visual.label.setText(this.obtenerEtiquetaUnidadMapa(unidad, etiquetasPropias));
+    });
+  }
+
+  private obtenerEtiquetaUnidadMapa(unidad: IUnit, etiquetasPropias?: Map<string, string>): string {
+    if (this.esPortadrones(unidad)) {
+      return 'Portadron';
+    }
+    if (!this.esUnidadDron(unidad)) {
+      return 'Unidad';
+    }
+    if (!this.playerUnitIds.has(unidad.unitId)) {
+      return 'Dron';
+    }
+
+    const etiquetas = etiquetasPropias ?? this.obtenerEtiquetasUnidadesPropiasMapa();
+    return etiquetas.get(unidad.unitId) ?? 'Dron';
+  }
+
+  private obtenerEtiquetasUnidadesPropiasMapa(): Map<string, string> {
+    const unidadesPropias = Array.from(this.knownUnits.values())
+      .filter(unidad => this.playerUnitIds.has(unidad.unitId) && (this.esUnidadDron(unidad) || this.esPortadrones(unidad)))
+      .sort((a, b) => {
+        const prioridad = this.obtenerPrioridadSidebar(a.type) - this.obtenerPrioridadSidebar(b.type);
+        if (prioridad !== 0) {
+          return prioridad;
+        }
+        return a.unitId.localeCompare(b.unitId);
+      });
+
+    const etiquetas = new Map<string, string>();
+    return etiquetas;
   }
 
   private showError(message: string): void {
@@ -1066,7 +1465,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawUI(): void {
-    // Borde del mapa (visual, sigue la cámara)
+    // Borde del mapa
     const graphics = this.add.graphics({ x: 0, y: 0 });
     graphics.lineStyle(2, 0x00ff00, 0.5);
     graphics.strokeRect(
@@ -1076,7 +1475,7 @@ export class GameScene extends Phaser.Scene {
       GameScene.MAP_MAX_Y - GameScene.MAP_MIN_Y
     );
 
-    // ===== UI FIJA EN PANTALLA (no sigue cámara) =====
+    // UI FIJA EN PANTALLA
     const titulo = this.add.text(
       this.cameras.main.centerX,
       30,
@@ -1084,20 +1483,6 @@ export class GameScene extends Phaser.Scene {
       {fontSize: '24px', color: '#00ff00', fontStyle: 'bold'}
     ).setOrigin(0.5).setScrollFactor(0);
     titulo.setDepth(100);
-
-    this.add.text(
-      20,
-      70,
-      'WASD: mover mapa libre | Flechas: mover unidad | Q/E y rueda: altura',
-      {fontSize: '14px', color: '#cccccc'}
-    ).setScrollFactor(0).setDepth(100);
-
-    this.add.text(
-      20,
-      this.cameras.main.height - 40,
-      'Connected to the server',
-      {fontSize: '12px', color: '#00ff00'}
-    ).setScrollFactor(0).setDepth(100);
 
     this.timerPortadronesTexto = this.add.text(
       this.cameras.main.centerX,
@@ -1109,6 +1494,8 @@ export class GameScene extends Phaser.Scene {
     this.crearAvisoPausa();
     this.actualizarAvisoPausa();
     this.crearPanelEstadisticasDron();
+    this.inicializarVistaLateralInferior();
+    this.renderizarSidebarDrones();
   }
 
   private crearAvisoPausa(): void {
@@ -1138,15 +1525,117 @@ export class GameScene extends Phaser.Scene {
     this.avisoPausaContenedor.setVisible(this.partidaPausada);
   }
 
+  private getLateralIdleAnimation(unit: IUnit): string {
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    const esDron = this.esUnidadDron(unit);
+    const esCarrier = this.esPortadrones(unit);
+
+    if (esDron) {
+      if (esJugadorUno) {
+        return AnimationManager.KEYS.droneChinoMLateral;
+      } else {
+        return AnimationManager.KEYS.dronePortuguesMLateral;
+      }
+    }
+
+    if (esCarrier) {
+      if (esJugadorUno) {
+        return AnimationManager.KEYS.carrierChinoMLateral;
+      } else {
+        return AnimationManager.KEYS.carrierPortuguesMLateral;
+      }
+    }
+
+    return "";
+  }
+
+  private playPanelAttackAnimation(unit: IUnit): void {
+
+    const selectedUnit = this.selectionManager?.getSelectedUnit();
+    if (!selectedUnit || selectedUnit.unitId !== unit.unitId) {
+      return;
+    }
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+    let animKey = "";
+    if (this.esUnidadDron(unit)) {
+
+      if (esJugadorUno) {
+        animKey = AnimationManager.KEYS.droneChinoBmLateral;
+      } else {
+        animKey = AnimationManager.KEYS.dronePortuguesMsLateral;
+      }
+
+    }
+
+    if (animKey) {
+
+      this.statsDroneSprite.play(animKey, true);
+
+      this.statsDroneSprite.once(
+          Phaser.Animations.Events.ANIMATION_COMPLETE,
+          () => {
+            this.statsDroneSprite.play(this.getLateralIdleAnimation(unit), true);
+          }
+      );
+
+    }
+
+  }
+
+  private playPanelDestroyAnimation(unit: IUnit): void {
+
+    const esJugadorUno = this.esUnidadDeJugador1(unit.unitId);
+
+    let animKey = "";
+
+    if (this.esUnidadDron(unit)) {
+      animKey = esJugadorUno
+          ? AnimationManager.KEYS.droneChinoDLateral
+          : AnimationManager.KEYS.dronePortuguesDLateral;
+    }
+
+    if (this.esPortadrones(unit)) {
+      animKey = esJugadorUno
+          ? AnimationManager.KEYS.carrierChinoDLateral
+          : AnimationManager.KEYS.carrierPortuguesDLateral;
+    }
+
+    if (animKey) {
+      this.statsDroneSprite.play(animKey);
+    }
+    this.statsDroneSprite.play(animKey);
+
+    this.statsDroneSprite.once(
+        Phaser.Animations.Events.ANIMATION_COMPLETE,
+        () => {
+          this.statsDroneSprite.setVisible(false);
+        }
+    );
+  }
+
+  private actualizarPanelAnimacion(unit: IUnit): void {
+
+    if (!this.statsDroneSprite) return;
+
+    const animKey = this.getLateralIdleAnimation(unit);
+
+    if (animKey) {
+      this.statsDroneSprite.setVisible(true);
+      this.statsDroneSprite.play(animKey, true);
+    }
+  }
+
   private crearPanelEstadisticasDron(): void {
     const w = this.cameras.main.width;
     const h = this.cameras.main.height;
     const bottomPanelH = Math.floor(h * 0.2);
 
-    const panelWidth = 300;
+    const panelWidth = 350;
     const panelHeight = Math.max(110, bottomPanelH - 10);
     const offsetRight = 0;
-    const offsetBottom = 0;
+    const offsetBottom = 70;
 
     const panelX = w - panelWidth / 2 - offsetRight;
     const panelY = h - bottomPanelH - offsetBottom;
@@ -1159,29 +1648,23 @@ export class GameScene extends Phaser.Scene {
     const titulo = this.add.text(
       -panelWidth / 2 + 10,
       -panelHeight / 2 + 8,
-      this.esJugadorUno() ? 'Dron Jugador 1' : 'Dron Jugador 2',
-      { fontSize: '13px', color: '#e5e7eb', fontStyle: 'bold' }
+      this.esJugadorUno() ? 'Fuerzas Aereas' : 'Fuerzas Navales',
+      { fontSize: '18px', color: '#e5e7eb', fontStyle: 'bold' }
     ).setOrigin(0, 0);
 
     // 1) Etiqueta del dron (arriba en el panel)
     const etiquetaCenterX = 0;
     const etiquetaY = -panelHeight / 2 + 26;
 
-    const etiquetaDron = this.add.text(
-      etiquetaCenterX,
-      etiquetaY,
-      '-',
-      { fontSize: '12px', color: '#e5e7eb', align: 'center' }
-    ).setOrigin(0.5);
-
-    // 2) "Imagen" del dron justo debajo de la etiqueta
+    // 2) Sprite del dron justo debajo de la etiqueta
     const imagenCenterX = 0;
     const imagenY = etiquetaY + 28;
 
-    const cuerpoDron = this.add.rectangle(imagenCenterX, imagenY, 64, 40, 0x374151);
-    cuerpoDron.setStrokeStyle(2, 0x6b7280, 1);
+    const droneSprite = this.add.sprite(imagenCenterX, imagenY, "droneChinoMovLateral");
+    droneSprite.setScale(1.8);
+    droneSprite.setVisible(false);
 
-    // 3) Estadísticas debajo de la imagen
+    // 3) Estadisticas debajo de la imagen
     const textoBaseX = -panelWidth / 2 + 16;
     const textoBaseY = imagenY + 30;
 
@@ -1189,28 +1672,28 @@ export class GameScene extends Phaser.Scene {
       textoBaseX,
       textoBaseY,
       'Sin dron seleccionado',
-      { fontSize: '12px', color: '#f9fafb' }
+      { fontSize: '14px', color: '#f9fafb' }
     ).setOrigin(0, 0);
 
     this.selectedUnitArmamentoText = this.add.text(
       textoBaseX,
       textoBaseY + 18,
       'Armamento: -',
-      { fontSize: '12px', color: '#d1d5db' }
+      { fontSize: '14px', color: '#d1d5db' }
     ).setOrigin(0, 0);
+    this.aplicarFondoSuaveTexto(this.selectedUnitArmamentoText);
 
     this.selectedUnitFuelText = this.add.text(
       textoBaseX,
       textoBaseY + 36,
       'Combustible: -',
-      { fontSize: '12px', color: '#d1d5db' }
+      { fontSize: '14px', color: '#d1d5db' }
     ).setOrigin(0, 0);
 
     container.add([
       fondo,
       titulo,
-      cuerpoDron,
-      etiquetaDron,
+      droneSprite,
       this.selectedUnitCoordsText,
       this.selectedUnitArmamentoText,
       this.selectedUnitFuelText,
@@ -1221,39 +1704,9 @@ export class GameScene extends Phaser.Scene {
     container.setDepth(100);
 
     this.statsPanelContainer = container;
-    this.statsDroneBody = cuerpoDron;
-    this.statsDroneLabel = etiquetaDron;
+    this.statsDroneSprite = droneSprite;
 
     this.updateSelectedUnitCoordsText();
-  }
-
-  private crearBotonRecarga(): void {
-    const margen = 16;
-    const ancho = 140;
-    const alto = 36;
-    const x = this.cameras.main.width - margen - ancho / 2;
-    const y = this.cameras.main.height - margen - alto / 2;
-
-    const fondo = this.add.rectangle(0, 0, ancho, alto, 0x2a2f35);
-    fondo.setStrokeStyle(2, 0x4c4c4c, 0.8);
-
-    const texto = this.add.text(0, 0, 'Recargar', {
-      fontSize: '14px',
-      color: '#b6ffb6'
-    }).setOrigin(0.5);
-
-    const contenedor = this.add.container(x, y, [fondo, texto]);
-    contenedor.setScrollFactor(0).setDepth(100);
-    contenedor.setInteractive(new Phaser.Geom.Rectangle(-ancho / 2, -alto / 2, ancho, alto), Phaser.Geom.Rectangle.Contains);
-
-    contenedor.on('pointerdown', () => {
-      this.manejarAccionRecarga();
-    });
-
-    this.botonRecargaContenedor = contenedor;
-    this.textoBotonRecarga = texto;
-    this.fondoBotonRecarga = fondo;
-    this.actualizarEstadoBotonRecarga();
   }
 
   private updateSelectedUnitCoordsText(): void {
@@ -1296,11 +1749,12 @@ export class GameScene extends Phaser.Scene {
       this.statsDroneBody.setStrokeStyle(2, bordeColor, 1);
     }
     if (this.statsDroneLabel) {
-      this.statsDroneLabel.setText(this.getUnitLabel(unit.type));
+      this.statsDroneLabel.setText(this.obtenerEtiquetaUnidadMapa(unit));
       this.statsDroneLabel.setColor(unit.health > 0 ? '#f9fafb' : '#6b7280');
     }
 
     this.updateSelectedUnitArmamentoText();
+    this.actualizarPanelAnimacion(unit);
   }
 
   private actualizarArmamentoUI(): void {
@@ -1319,6 +1773,14 @@ export class GameScene extends Phaser.Scene {
     }
 
     const unit = this.knownUnits.get(selectedUnit.unitId) ?? selectedUnit;
+    if (this.esPortadrones(unit)) {
+      const etiqueta = unit.type === UnitType.AERIAL_CARRIER ? 'Bombas' : 'Misiles';
+      const max = this.getCarrierMaxAmmo(unit);
+      const actual = this.carrierAmmoByUnitId.get(unit.unitId) ?? max;
+      this.selectedUnitArmamentoText.setText(`Armamento: ${etiqueta} ${actual}/${max}`);
+      return;
+    }
+
     if (!this.esUnidadDron(unit)) {
       this.selectedUnitArmamentoText.setText('Armamento: N/A');
       return;
@@ -1330,38 +1792,6 @@ export class GameScene extends Phaser.Scene {
     const actual = this.ammoByUnitId.get(unit.unitId) ?? 0;
 
     this.selectedUnitArmamentoText.setText(`Armamento: ${etiqueta} ${actual}/${maxPorDron}`);
-  }
-
-  private calcularArmamentoPorJugador(jugador: 1 | 2): { actual: number; max: number; etiqueta: string; jugadorLabel: string } {
-    const esJugadorUno = jugador === 1;
-    const etiqueta = esJugadorUno ? 'Bombas' : 'Misiles';
-    const porDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
-
-    let drones = 0;
-    let actual = 0;
-    for (const [unitId, unit] of this.knownUnits.entries()) {
-      const esUnidadJugadorUno = this.esUnidadDeJugador1(unitId);
-      if (esJugadorUno !== esUnidadJugadorUno) {
-        continue;
-      }
-      if (!this.esUnidadDron(unit)) {
-        continue;
-      }
-      drones += 1;
-      actual += this.ammoByUnitId.get(unitId) ?? 0;
-    }
-
-    const max = drones * porDron;
-    if (actual > max) {
-      actual = max;
-    }
-
-    return {
-      actual,
-      max,
-      etiqueta,
-      jugadorLabel: `Jugador ${jugador}`
-    };
   }
 
   private esJugadorUno(): boolean {
@@ -1380,7 +1810,14 @@ export class GameScene extends Phaser.Scene {
 
   private sincronizarMunicionInicial(units: IUnit[]): void {
     const siguiente = new Map<string, number>();
+    const siguienteCarrierAmmo = new Map<string, number>();
     units.forEach(unit => {
+      if (this.esPortadrones(unit)) {
+        const max = this.getCarrierMaxAmmo(unit);
+        const inicial = this.obtenerCarrierAmmoDesdeUnidad(unit, max);
+        siguienteCarrierAmmo.set(unit.unitId, inicial);
+        return;
+      }
       if (!this.esUnidadDron(unit)) {
         return;
       }
@@ -1389,6 +1826,22 @@ export class GameScene extends Phaser.Scene {
       siguiente.set(unit.unitId, maxPorDron);
     });
     this.ammoByUnitId = siguiente;
+    this.carrierAmmoByUnitId = siguienteCarrierAmmo;
+  }
+
+  private getCarrierMaxAmmo(unit: IUnit): number {
+    if (unit.type === UnitType.AERIAL_CARRIER) {
+      return GameScene.AERIAL_CARRIER_MAX_AMMO;
+    }
+    if (unit.type === UnitType.NAVAL_CARRIER) {
+      return GameScene.NAVAL_CARRIER_MAX_AMMO;
+    }
+    return 0;
+  }
+
+  private obtenerCarrierAmmoDesdeUnidad(unit: IUnit, fallback: number): number {
+    const raw = unit.municionDisponible;
+    return typeof raw === 'number' ? Phaser.Math.Clamp(raw, 0, fallback) : fallback;
   }
 
   private procesarMunicionRecargada(payload: any): void {
@@ -1404,11 +1857,19 @@ export class GameScene extends Phaser.Scene {
 
     const esJugadorUno = this.esUnidadDeJugador1(unitId);
     const maxPorDron = esJugadorUno ? GameScene.BOMBAS_POR_DRON : GameScene.MISILES_POR_DRON;
+    const previo = this.ammoByUnitId.get(unitId) ?? 0;
 
     let nuevo = typeof payload?.ammo === 'number' ? payload.ammo : maxPorDron;
     nuevo = Phaser.Math.Clamp(nuevo, 0, maxPorDron);
 
     this.ammoByUnitId.set(unitId, nuevo);
+    const recargado = Math.max(0, nuevo - previo);
+    const carrierAmmo = this.extraerCarrierAmmoDesdePayload(payload);
+    if (typeof carrierAmmo === 'number') {
+      this.setCarrierAmmoByTeam(esJugadorUno, carrierAmmo);
+    } else if (recargado > 0) {
+      this.consumeCarrierAmmoByTeam(esJugadorUno, recargado);
+    }
     this.actualizarArmamentoUI();
 
     if (typeof payload?.combustible === 'number') {
@@ -1420,13 +1881,63 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private extraerCarrierAmmoDesdePayload(payload: any): number | null {
+    const raw = payload?.municionDisponible;
+    return typeof raw === 'number' ? raw : null;
+  }
+
+  private getCarrierIdByTeam(esJugadorUno: boolean): string | null {
+    for (const unit of this.knownUnits.values()) {
+      if (!this.esPortadrones(unit)) {
+        continue;
+      }
+      if (this.esUnidadDeJugador1(unit.unitId) === esJugadorUno) {
+        return unit.unitId;
+      }
+    }
+    return null;
+  }
+
+  private setCarrierAmmoByTeam(esJugadorUno: boolean, ammo: number): void {
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(ammo, 0, max));
+  }
+
+  private consumeCarrierAmmoByTeam(esJugadorUno: boolean, amount: number): void {
+    if (amount <= 0) {
+      return;
+    }
+    const carrierId = this.getCarrierIdByTeam(esJugadorUno);
+    if (!carrierId) {
+      return;
+    }
+    const carrier = this.knownUnits.get(carrierId);
+    if (!carrier || !this.esPortadrones(carrier)) {
+      return;
+    }
+    const max = this.getCarrierMaxAmmo(carrier);
+    const actual = this.carrierAmmoByUnitId.get(carrierId) ?? max;
+    this.carrierAmmoByUnitId.set(carrierId, Phaser.Math.Clamp(actual - amount, 0, max));
+  }
+
   private setupPointerControls(): void {
-    // Click derecho en mapa: deselecciona
-    // Click izquierdo en mapa: mueve a la unidad seleccionada
+    // Clic derecho en mapa: deselecciona
+    // Clic izquierdo en mapa: mueve a la unidad seleccionada
     this.input.on('pointerdown', (pointer: Phaser.Input.Pointer, gameObjects: Phaser.GameObjects.GameObject[]) => {
       if (this.menuPausaVisible) {
         if (pointer.leftButtonDown()) {
-          this.manejarClickMenuPausa(pointer.x, pointer.y);
+          this.manejarClickMenuPausa(
+            pointer.x - this.cameras.main.x,
+            pointer.y - this.cameras.main.y
+          );
         }
         return;
       }
@@ -1435,7 +1946,14 @@ export class GameScene extends Phaser.Scene {
         return;
       }
 
-      if (pointer.y >= this.scale.height * 0.8) {
+      if (this.pointerEnPanelDrones(pointer)) {
+        if (pointer.leftButtonDown()) {
+          this.seleccionarDesdeClickSidebar(pointer.x, pointer.y);
+        }
+        return;
+      }
+
+      if (!this.pointerEnAreaDeMapa(pointer)) {
         return;
       }
 
@@ -1446,25 +1964,34 @@ export class GameScene extends Phaser.Scene {
 
       if (!pointer.leftButtonDown()) {return}
 
-      // Si hay objetos interactivos debajo, no es un click de mapa
-      if (gameObjects && gameObjects.length > 0) {return}
+      // Permite clickear encima de unidades enemigas para moverse a esa posicion
+      // Solo bloquea el click de mapa cuando el objeto clickeado es una unidad propia
+      if (this.shouldBlockMapClick(gameObjects)) {return}
 
       const unidadSeleccionada = this.selectionManager?.getSelectedUnit();
       if (!unidadSeleccionada) {return}
 
-      // Convertir posición de pantalla a mundo
+      // Convertir la posicion de la pantalla a la del mundo para mantener sincronizado
       const objetivoMundo = this.pantallaAMundo(pointer.x, pointer.y);
       const unidadActual = this.knownUnits.get(unidadSeleccionada.unitId) ?? unidadSeleccionada;
       this.solicitarMovimiento(unidadSeleccionada.unitId, objetivoMundo.x, objetivoMundo.y, unidadActual.z);
     });
 
-    // Rueda para altura: wheel ajusta Z en pasos fijos
+    // Rueda para altura: ajusta Z
     this.input.on('wheel', (_pointer: Phaser.Input.Pointer, _gameObjects: any, _deltaX: number, deltaY: number) => {
       if (this.partidaPausada || this.menuPausaVisible || this.partidaFinalizada) {
         return;
       }
 
-      if (_pointer.y >= this.scale.height * 0.8) {
+      if (this.pointerEnPanelDrones(_pointer)) {
+        if (deltaY === 0) {
+          return;
+        }
+        this.ciclarSeleccionUnidades(deltaY > 0 ? 1 : -1);
+        return;
+      }
+
+      if (!this.pointerEnAreaDeMapa(_pointer)) {
         return;
       }
 
@@ -1492,6 +2019,28 @@ export class GameScene extends Phaser.Scene {
         GameScene.ALTITUDE_SCROLL_REPEAT_MS
       );
     });
+  }
+
+  private shouldBlockMapClick(gameObjects: Phaser.GameObjects.GameObject[]): boolean {
+    if (!gameObjects || gameObjects.length === 0) {
+      return false;
+    }
+
+    return gameObjects.some(gameObject => this.isOwnUnitGameObject(gameObject));
+  }
+
+  private isOwnUnitGameObject(gameObject: Phaser.GameObjects.GameObject): boolean {
+    for (const [unitId, visual] of this.unitSprites.entries()) {
+      if (!this.playerUnitIds.has(unitId)) {
+        continue;
+      }
+
+      if (visual.sprite === gameObject || visual.container === gameObject || visual.label === gameObject) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private manejarClickMenuPausa(x: number, y: number): void {
@@ -1529,7 +2078,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     const pointer = this.input.activePointer;
-    if (pointer && pointer.y < this.scale.height * 0.8) {
+    if (pointer && this.pointerEnAreaDeMapa(pointer)) {
       const objetivo = this.pantallaAMundo(pointer.x, pointer.y);
       this.girarUnidadHaciaPunto(selectedUnit.unitId, objetivo.x, objetivo.y);
     }
@@ -1578,7 +2127,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    if (pointer.y >= this.scale.height * 0.8) {
+    if (!this.pointerEnAreaDeMapa(pointer)) {
       this.showError('Coloca el cursor sobre el mapa para disparar');
       return;
     }
@@ -1645,7 +2194,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBombLaunched(datosBomba: IBombLaunched): void {
-    // Dibuja la bomba en el mapa (coordenadas mundo para que haga scroll con la cámara)
     const spriteBomba = this.add.ellipse(datosBomba.x, datosBomba.y, 12, 12, 0xffaa00);
     spriteBomba.setStrokeStyle(2, 0xff0000);
     this.bombSprites.set(datosBomba.bombId, spriteBomba);
@@ -1675,6 +2223,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private handleBombExploded(datosExplosion: IBombExploded): void {
+    this.soundManager.playExplosion();
     // Limpia la bomba del mapa si existe.
     const spriteBomba = this.bombSprites.get(datosExplosion.bombId);
     if (spriteBomba) {
@@ -1682,7 +2231,7 @@ export class GameScene extends Phaser.Scene {
       this.bombSprites.delete(datosExplosion.bombId);
     }
 
-    // Efecto visual de explosión (coordenadas mundo para que haga scroll)
+    // Efecto visual de explosion
     const ondaExplosion = this.add.circle(datosExplosion.x, datosExplosion.y, 32, 0xff5500, 0.45)
       .setStrokeStyle(2, 0xffdd00);
 
@@ -1695,8 +2244,17 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => ondaExplosion.destroy()
     });
 
+    const idUnidad = (datosExplosion as any).unidadAtaqueId ?? (datosExplosion as any).attackerUnitId;
+
+    if (idUnidad) {
+      const unit = this.knownUnits.get(idUnidad);
+      if (unit) {
+        this.playPanelAttackAnimation(unit);
+      }
+    }
+
     datosExplosion.impactedUnits.forEach((unidadImpactada) => {
-      // Sincroniza HP en el mapa local antes de pintar.
+      // Sincroniza HP en el mapa local antes de ser renderizada
       const unidadActual = this.knownUnits.get(unidadImpactada.unitId);
       if (unidadActual) {
         unidadActual.health = unidadImpactada.health;
@@ -1719,7 +2277,11 @@ export class GameScene extends Phaser.Scene {
         });
 
         if (unidadImpactada.health <= 0) {
-          // Si queda en 0, la eliminamos del mapa.
+          // Si la vida queda en 0, eliminamos la unidad del mapa
+          const unit = this.knownUnits.get(unidadImpactada.unitId);
+          if (unit) {
+            this.playPanelDestroyAnimation(unit);
+          }
           this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'bomba');
         }
       }
@@ -1727,14 +2289,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   private manejarMisilDisparado(datosMisil: IMisilDisparado): void {
-    // Dibuja el misil en el mapa en coordenadas mundo (scroll con la cámara)
     const spriteMisil = this.add.ellipse(datosMisil.x, datosMisil.y, 10, 6, 0x00bcd4);
     spriteMisil.setStrokeStyle(1, 0xffffff);
     spriteMisil.setDepth(5);
     this.spritesMisiles.set(datosMisil.misilId, spriteMisil);
     this.posicionesMisiles.set(datosMisil.misilId, { x: datosMisil.x, y: datosMisil.y });
 
-    // Soportamos el nombre correcto del payload y el anterior por compatibilidad.
     const idUnidad = datosMisil.unidadAtaqueId ?? (datosMisil as any).unidadAtacanteId;
     if (idUnidad) {
       const esJugadorUno = this.esUnidadDeJugador1(idUnidad);
@@ -1745,6 +2305,11 @@ export class GameScene extends Phaser.Scene {
         : Phaser.Math.Clamp(actual - 1, 0, maxPorDron);
       this.ammoByUnitId.set(idUnidad, nuevo);
       this.actualizarArmamentoUI();
+      const unit = this.knownUnits.get(idUnidad);
+      if (unit) {
+        this.playPanelAttackAnimation(unit);
+      }
+
     }
 
     // La animacion real la manda el servidor con MISIL_ACTUALIZADO.
@@ -1773,6 +2338,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private manejarMisilImpactado(datosImpacto: IMisilImpactado): void {
+    this.soundManager.playExplosion();
     const spriteMisil = this.spritesMisiles.get(datosImpacto.misilId);
     if (spriteMisil) {
       spriteMisil.destroy();
@@ -1781,7 +2347,6 @@ export class GameScene extends Phaser.Scene {
     this.posicionesMisiles.delete(datosImpacto.misilId);
 
     datosImpacto.unidadesImpactadas.forEach((unidadImpactada) => {
-      // Sincroniza HP en el mapa local antes de pintar.
       const unidadActual = this.knownUnits.get(unidadImpactada.unitId);
       if (unidadActual) {
         unidadActual.health = unidadImpactada.health;
@@ -1804,7 +2369,10 @@ export class GameScene extends Phaser.Scene {
         });
 
         if (unidadImpactada.health <= 0) {
-          // Si queda en 0, la eliminamos del mapa.
+          const unit = this.knownUnits.get(unidadImpactada.unitId);
+          if (unit) {
+            this.playPanelDestroyAnimation(unit);
+          }
           this.eliminarUnidadDelMapa(unidadImpactada.unitId, 'misil');
         }
       }
@@ -1817,20 +2385,26 @@ export class GameScene extends Phaser.Scene {
     const esPortadronesPropio = esPortadronesDestruido && this.playerUnitIds.has(unidadId);
 
     const esUnidadPropia = this.playerUnitIds.has(unidadId);
+    const playerId = this.websocketClient?.getPlayerId();
 
     if (!esUnidadPropia) {
 
       if (esPortadronesDestruido) {
         this.playerScore += GameScene.SCORE_CARRIER;
       } else {
-        this.playerScore += GameScene.SCORE_DRONE;
-      }
+        if (playerId === 'player_2') {
+          this.playerScore += GameScene.SCORE_DRONE/2;
+        } else {
+          this.playerScore += GameScene.SCORE_DRONE;
+        }
 
+      }
     }
 
     const sprite = this.unitSprites.get(unidadId);
 
     if (sprite) {
+      this.soundManager.playUnitDestroyed();
       const colorExplosion = tipoAtaque === 'bomba' ? 0xff5500 : 0x00bcd4;
       const onda = this.add.circle(sprite.container.x, sprite.container.y, 18, colorExplosion, 0.4);
       onda.setDepth(8);
@@ -1875,6 +2449,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.knownUnits.delete(unidadId);
+    this.carrierAmmoByUnitId.delete(unidadId);
     this.playerUnitIds.delete(unidadId);
 
     if (this.selectionManager?.getSelectedUnit()?.unitId === unidadId) {
@@ -1907,7 +2482,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    // Punto unico de envio: limita la frecuencia y los rangos antes de enviar al servidor
+    // si no estoy conectado, no solicito nada al server
     if (!this.websocketClient) {
       return;
     }
@@ -1932,6 +2507,7 @@ export class GameScene extends Phaser.Scene {
     const zLimitado = Phaser.Math.Clamp(objetivoZ, GameScene.MAP_MIN_Z, maximoZ);
 
     this.girarUnidadHaciaPunto(unidadId, xLimitado, yLimitado);
+    this.soundManager.playUnitMove();
     this.websocketClient.solicitarMovimientoUnidad(unidadId, xLimitado, yLimitado, zLimitado);
     this.lastMoveRequestAt = ahoraMs;
   }
@@ -2031,45 +2607,30 @@ export class GameScene extends Phaser.Scene {
 
       this.capturandoNombre = false;
 
+      // Guardar en localStorage (para historial local)
       this.highScoreManager.saveScore(
           this.nombreJugador,
           this.playerScore
       );
 
+      // Enviar al servidor para guardar en BD
+      if (this.websocketClient) {
+        const playerId = this.registry.get("preferredPlayerId") || "";
+        this.websocketClient.enviarPuntajeGanador(
+            this.nombreJugador,
+            this.playerScore,
+            playerId
+        );
+      }
+
       console.log("Score guardado:", this.nombreJugador, this.playerScore);
 
       this.time.delayedCall(1000, () => {
+        this.soundManager?.stopBackgroundMusic();
         this.scene.start("RankingScene");
       });
     }
 
-  }
-
-  private manejarAccionRecarga(): void {
-    if (this.partidaPausada || this.menuPausaVisible) {
-      return;
-    }
-
-    if (!this.websocketClient || !this.selectionManager) {
-      return;
-    }
-
-    const unidadSeleccionada = this.selectionManager.getSelectedUnit();
-    if (!unidadSeleccionada || !this.playerUnitIds.has(unidadSeleccionada.unitId)) {
-      return;
-    }
-
-    if (!this.esUnidadDron(unidadSeleccionada)) {
-      return;
-    }
-
-    const portadronesId = this.buscarPortadronesCercanoId(unidadSeleccionada);
-    if (!portadronesId) {
-      return;
-    }
-
-    // Evento para recarga (el servidor debe validar proximidad y estado)
-    this.websocketClient.solicitarRecargaMunicion(unidadSeleccionada.unitId, portadronesId);
   }
 
   private puedeRecargarDronSeleccionado(): boolean {
@@ -2090,7 +2651,19 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
 
-    return this.buscarPortadronesCercanoId(unidadSeleccionada) !== null;
+    const portadronesId = this.buscarPortadronesCercanoId(unidadSeleccionada);
+    if (!portadronesId) {
+      return false;
+    }
+
+    const portadrones = this.knownUnits.get(portadronesId);
+    if (!portadrones || !this.esPortadrones(portadrones)) {
+      return false;
+    }
+
+    const max = this.getCarrierMaxAmmo(portadrones);
+    const actual = this.carrierAmmoByUnitId.get(portadronesId) ?? max;
+    return actual > 0;
   }
 
   private buscarPortadronesCercanoId(dron: IUnit): string | null {
@@ -2164,7 +2737,7 @@ export class GameScene extends Phaser.Scene {
 
     const overlay = this.add.rectangle(centroX, centroY, anchoPantalla, altoPantalla, 0x000000, 0.45);
 
-    const panel = this.add.rectangle(centroX, centroY, 380, 330, 0x111827, 0.96);
+    const panel = this.add.rectangle(centroX, centroY, 380, 390, 0x111827, 0.96);
     panel.setStrokeStyle(2, 0x4b5563, 0.95);
     panel.setInteractive();
 
@@ -2223,19 +2796,54 @@ export class GameScene extends Phaser.Scene {
       this.websocketClient?.solicitarGuardarPartida();
     });
 
-    const botonConfig = crearBoton(centroY + 45, 'Configuracion', () => {
-      this.showError('Configuracion pendiente');
-    });
-
     const botonSalir = crearBoton(centroY + 95, 'Salir al menu', () => {
       const confirmar = window.confirm('Seguro que queres salir al menu principal?');
       if (!confirmar) {
         return;
       }
 
+      // Limpiar datos de jugador guardados
+      localStorage.removeItem("dronewars:save-slot");
+      this.registry.remove("preferredPlayerId");
+
+      // Limpiar todos los datos y desconectar WebSocket
       this.websocketClient?.disconnect();
-      window.location.reload();
+      this.websocketClient = null;
+
+      // Detener musica de fondo
+      this.soundManager?.stopBackgroundMusic();
+
+      // Limpiar listeners y recursos de phaser
+      this.input.keyboard?.removeAllListeners();
+      this.events.removeAllListeners();
+
+      // Transicion a MainMenuScene
+      this.scene.start('MainMenuScene');
     });
+
+    // Contenedor para el codigo de guardado mismo estilo que los botones de phaser)
+    const ancho = 280;
+    const alto = 44;
+    const yCodigoGuardado = centroY + 150;
+
+    const fondoCodigoGuardado = this.add.rectangle(0, 0, ancho, alto, 0x1f2937, 1);
+    fondoCodigoGuardado.setStrokeStyle(2, 0x10b981, 0.95);
+    fondoCodigoGuardado.setInteractive({ useHandCursor: true });
+
+    this.codigoGuardadoTexto = this.add.text(0, 0, '', {
+      fontSize: '18px',
+      color: '#10b981',
+      fontStyle: 'bold',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    const codigoGuardadoContenedor = this.add.container(centroX, yCodigoGuardado, [
+      fondoCodigoGuardado,
+      this.codigoGuardadoTexto
+    ]);
+
+    // Oculto inicialmente hasta que se guarde una partida
+    codigoGuardadoContenedor.setVisible(false);
 
     this.menuPausaContenedor = this.add.container(0, 0, [
       overlay,
@@ -2243,8 +2851,8 @@ export class GameScene extends Phaser.Scene {
       titulo,
       botonPausa.contenedor,
       botonGuardar.contenedor,
-      botonConfig.contenedor,
-      botonSalir.contenedor
+      botonSalir.contenedor,
+      codigoGuardadoContenedor
     ]);
     this.menuPausaContenedor.setScrollFactor(0);
     this.menuPausaContenedor.setDepth(120);
@@ -2272,6 +2880,30 @@ export class GameScene extends Phaser.Scene {
     this.textoBotonPausarMenu.setText(this.partidaPausada ? 'Reanudar partida' : 'Pausar partida');
   }
 
+  private actualizarTextoCodigoGuardado(): void {
+    if (!this.codigoGuardadoTexto) {
+      return;
+    }
+
+    if (this.codigoGuardadoActual) {
+      this.codigoGuardadoTexto.setText(this.codigoGuardadoActual);
+      this.codigoGuardadoTexto.setVisible(true);
+      // Mostrar el contenedor padre tambien
+      const contenedor = this.codigoGuardadoTexto.parentContainer;
+      if (contenedor) {
+        contenedor.setVisible(true);
+      }
+    } else {
+      this.codigoGuardadoTexto.setText('');
+      this.codigoGuardadoTexto.setVisible(false);
+      // Ocultar el contenedor padre tambien
+      const contenedor = this.codigoGuardadoTexto.parentContainer;
+      if (contenedor) {
+        contenedor.setVisible(false);
+      }
+    }
+  }
+
   private mostrarResultadoFinal(payload: IGameEnded): void {
     if (this.partidaFinalizada) return;
     this.partidaFinalizada = true;
@@ -2279,7 +2911,7 @@ export class GameScene extends Phaser.Scene {
     this.timerPortadronesDeadlineMs = null;
     this.timerPortadronesTexto?.setVisible(false);
 
-    // Bloquea selección/interacciones
+    // Bloquea seleccion/interacciones
     this.selectionManager?.deselectUnit();
     this.unitSprites.forEach(s => s.sprite.disableInteractive());
     this.botonRecargaContenedor?.disableInteractive();
@@ -2334,6 +2966,368 @@ export class GameScene extends Phaser.Scene {
     return razones[reason] ?? `Fin de partida(${reason})`;
   }
 
+  private limpiarSidebarElementos(): void {
+    this.sidebarElementos.forEach(elemento => elemento.destroy());
+    this.sidebarElementos = [];
+  }
+
+  private limpiarSidebarUI(): void {
+    this.limpiarSidebarElementos();
+    this.sidebarUnidadesPorId.clear();
+    this.sidebarUnidades = [];
+    this.sidebarMezclaAlertaPorUnidad.clear();
+    this.sidebarUnidadSeleccionadaId = null;
+    this.sidebarNecesitaRender = true;
+  }
+
+  private actualizarSidebarUnidades(unidadesActualizadas: ISideViewUnit[]): void {
+    const idsPropiosActualizados = new Set<string>();
+
+    unidadesActualizadas.forEach(unidad => {
+      if (!unidad.isPlayerUnit || !this.esUnidadRenderizableSidebar(unidad.type)) {
+        return;
+      }
+
+      idsPropiosActualizados.add(unidad.unitId);
+      this.sidebarUnidadesPorId.set(unidad.unitId, {
+        ...this.sidebarUnidadesPorId.get(unidad.unitId),
+        ...unidad
+      });
+      if (!this.sidebarMezclaAlertaPorUnidad.has(unidad.unitId)) {
+        this.sidebarMezclaAlertaPorUnidad.set(unidad.unitId, unidad.tieneEnemigoEnVision === true ? 1 : 0);
+      }
+    });
+
+    this.sidebarUnidadesPorId.forEach((unidadGuardada, unitId) => {
+      if (!idsPropiosActualizados.has(unitId)) {
+        this.sidebarUnidadesPorId.set(unitId, {
+          ...unidadGuardada,
+          health: 0,
+          tieneEnemigoEnVision: false
+        });
+        this.sidebarMezclaAlertaPorUnidad.set(unitId, 0);
+      }
+    });
+
+    this.sidebarUnidades = Array.from(this.sidebarUnidadesPorId.values());
+    this.sidebarNecesitaRender = true;
+  }
+
+  private actualizarLerpSidebar(delta: number): boolean {
+    let huboCambios = false;
+    const factor = Math.min(1, Math.max(0.01, delta * GameScene.SIDEBAR_FACTOR_LERP_ALERTA));
+
+    this.sidebarUnidades.forEach(unidad => {
+      if (!unidad.isPlayerUnit || !this.esUnidadRenderizableSidebar(unidad.type)) {
+        return;
+      }
+
+      const objetivo = unidad.health > 0 && unidad.tieneEnemigoEnVision === true ? 1 : 0;
+      const actual = this.sidebarMezclaAlertaPorUnidad.get(unidad.unitId) ?? objetivo;
+      const interpolado = Phaser.Math.Linear(actual, objetivo, factor);
+      const siguiente = Math.abs(interpolado - objetivo) < 0.01 ? objetivo : interpolado;
+
+      if (Math.abs(siguiente - actual) > 0.001) {
+        this.sidebarMezclaAlertaPorUnidad.set(unidad.unitId, siguiente);
+        huboCambios = true;
+      }
+    });
+
+    return huboCambios;
+  }
+
+  private renderizarSidebarDrones(): void {
+    this.limpiarSidebarElementos();
+
+    const anchoPanel = this.obtenerAnchoPanelDrones();
+    const altoPanel = this.obtenerAltoMapaVisible();
+    const margen = GameScene.SIDEBAR_MARGEN_INTERNO;
+    const cabecera = GameScene.SIDEBAR_ALTO_CABECERA;
+
+    const titulo = this.add.text(margen, margen, 'Mis unidades', {
+      fontSize: '20px',
+      color: '#f8fafc',
+      fontStyle: 'bold'
+    });
+    titulo.setScrollFactor(0).setDepth(132);
+    this.sidebarElementos.push(titulo);
+
+    const unidadesPropias = this.obtenerUnidadesSidebarOrdenadas();
+
+    if (unidadesPropias.length === 0) {
+      const vacio = this.add.text(margen, cabecera + margen, 'Aun no hay unidades disponibles.', {
+        fontSize: '13px',
+        color: '#94a3b8'
+      });
+      vacio.setScrollFactor(0).setDepth(132);
+      this.sidebarElementos.push(vacio);
+      this.sidebarNecesitaRender = false;
+      return;
+    }
+
+    const etiquetasSincronizadas = this.obtenerEtiquetasSincronizadasPorUnidad();
+    const { ladoCuadro, espacio, offsetY } = this.calcularGridSidebar(unidadesPropias.length, anchoPanel, altoPanel);
+    const fuenteEtiqueta = ladoCuadro >= 74 ? '14px' : ladoCuadro >= 52 ? '12px' : ladoCuadro >= 36 ? '10px' : '9px';
+
+    unidadesPropias.forEach((unidad, index) => {
+      const fila = Math.floor(index / GameScene.SIDEBAR_COLUMNAS);
+      const columna = index % GameScene.SIDEBAR_COLUMNAS;
+      const xLeft = margen + columna * (ladoCuadro + espacio);
+      const yTop = cabecera + margen + offsetY + fila * (ladoCuadro + espacio);
+      const centroX = xLeft + (ladoCuadro / 2);
+      const habilitada = unidad.health > 0;
+      const mezclaAlerta = habilitada ? (this.sidebarMezclaAlertaPorUnidad.get(unidad.unitId) ?? 0) : 0;
+
+      const colorFondo = habilitada
+        ? this.lerpColorEnteroSidebar(GameScene.SIDEBAR_COLOR_FONDO_NORMAL, GameScene.SIDEBAR_COLOR_FONDO_ALERTA, mezclaAlerta)
+        : GameScene.SIDEBAR_COLOR_FONDO_DESTRUIDA;
+      const colorBorde = habilitada
+        ? this.lerpColorEnteroSidebar(GameScene.SIDEBAR_COLOR_BORDE_NORMAL, GameScene.SIDEBAR_COLOR_BORDE_ALERTA, mezclaAlerta)
+        : GameScene.SIDEBAR_COLOR_BORDE_DESTRUIDA;
+      const colorDetalle = habilitada
+        ? this.lerpColorEnteroSidebar(GameScene.SIDEBAR_COLOR_DETALLE_NORMAL, GameScene.SIDEBAR_COLOR_DETALLE_ALERTA, mezclaAlerta)
+        : GameScene.SIDEBAR_COLOR_DETALLE_DESTRUIDA;
+      const esSeleccionada = this.sidebarUnidadSeleccionadaId === unidad.unitId;
+
+      const tarjeta = this.add.rectangle(centroX, yTop + (ladoCuadro / 2), ladoCuadro, ladoCuadro, colorFondo, 0.97);
+      tarjeta.setStrokeStyle(esSeleccionada ? 3 : 2, esSeleccionada ? 0xfff06a : colorBorde, 1);
+      tarjeta.setScrollFactor(0).setDepth(132);
+      this.sidebarElementos.push(tarjeta);
+
+      const etiquetaTarjeta = this.add.text(
+        centroX,
+        yTop + (ladoCuadro / 2),
+        etiquetasSincronizadas.get(unidad.unitId)?.sidebar ?? `Dron ${index + 1}`,
+        {
+        fontSize: fuenteEtiqueta,
+        color: this.colorNumeroAHexSidebar(colorDetalle),
+        fontStyle: 'bold',
+        align: 'center'
+      }).setOrigin(0.5).setScrollFactor(0).setDepth(133);
+      this.sidebarElementos.push(etiquetaTarjeta);
+    });
+
+    this.sidebarNecesitaRender = false;
+  }
+
+  private calcularGridSidebar(cantidadUnidades: number, anchoPanel: number, altoPanel: number): { ladoCuadro: number; espacio: number; filas: number; offsetY: number } {
+    const filas = Math.max(1, Math.ceil(cantidadUnidades / GameScene.SIDEBAR_COLUMNAS));
+    const espacio = GameScene.SIDEBAR_ESPACIO_GRID;
+    const anchoDisponible = Math.max(1, anchoPanel - GameScene.SIDEBAR_MARGEN_INTERNO * 2);
+    const altoDisponible = Math.max(1, altoPanel - GameScene.SIDEBAR_ALTO_CABECERA - GameScene.SIDEBAR_MARGEN_INTERNO);
+
+    const ladoPorAncho = Math.floor((anchoDisponible - (GameScene.SIDEBAR_COLUMNAS - 1) * espacio) / GameScene.SIDEBAR_COLUMNAS);
+    const ladoPorAlto = Math.floor((altoDisponible - (filas - 1) * espacio) / filas);
+    const ladoCuadro = Math.max(1, Math.min(GameScene.SIDEBAR_LADO_CUADRO_BASE, ladoPorAncho, ladoPorAlto));
+
+    const altoBloque = filas * ladoCuadro + Math.max(0, filas - 1) * espacio;
+    const offsetY = Math.max(0, Math.floor((altoDisponible - altoBloque) / 8));
+
+    return { ladoCuadro, espacio, filas, offsetY };
+  }
+
+  private obtenerUnidadesSidebarOrdenadas(): ISideViewUnit[] {
+    return this.sidebarUnidades
+      .filter(unidad => unidad.isPlayerUnit && this.esUnidadRenderizableSidebar(unidad.type))
+      .sort((a, b) => {
+        const prioridad = this.obtenerPrioridadSidebar(a.type) - this.obtenerPrioridadSidebar(b.type);
+        if (prioridad !== 0) {
+          return prioridad;
+        }
+        return a.unitId.localeCompare(b.unitId);
+      });
+  }
+
+  private obtenerEtiquetasSincronizadasPorUnidad(): Map<string, { sidebar: string; inferior: string }> {
+    const etiquetas = new Map<string, { sidebar: string; inferior: string }>();
+    let numeroDron = 1;
+    const unidadesOrdenadas = this.obtenerUnidadesSidebarOrdenadas();
+
+    unidadesOrdenadas.forEach(unidad => {
+      if (this.esPortadronSidebar(unidad.type)) {
+        etiquetas.set(unidad.unitId, { sidebar: 'Portadron', inferior: 'P' });
+        return;
+      }
+
+      const numero = `${numeroDron}`;
+      etiquetas.set(unidad.unitId, { sidebar: `Dron ${numero}`, inferior: numero });
+      numeroDron += 1;
+    });
+
+    return etiquetas;
+  }
+
+  private lerpColorEnteroSidebar(colorDesde: number, colorHasta: number, factor: number): number {
+    const desdeR = (colorDesde >> 16) & 0xff;
+    const desdeG = (colorDesde >> 8) & 0xff;
+    const desdeB = colorDesde & 0xff;
+    const hastaR = (colorHasta >> 16) & 0xff;
+    const hastaG = (colorHasta >> 8) & 0xff;
+    const hastaB = colorHasta & 0xff;
+
+    const r = Math.round(Phaser.Math.Linear(desdeR, hastaR, factor));
+    const g = Math.round(Phaser.Math.Linear(desdeG, hastaG, factor));
+    const b = Math.round(Phaser.Math.Linear(desdeB, hastaB, factor));
+
+    return (r << 16) | (g << 8) | b;
+  }
+
+  private colorNumeroAHexSidebar(color: number): string {
+    return `#${color.toString(16).padStart(6, '0')}`;
+  }
+
+  private esUnidadRenderizableSidebar(tipo: string): boolean {
+    return tipo === 'AERIAL_DRONE'
+      || tipo === 'NAVAL_DRONE'
+      || tipo === 'AERIAL_CARRIER'
+      || tipo === 'NAVAL_CARRIER';
+  }
+
+  private esPortadronSidebar(tipo: string): boolean {
+    return tipo === 'AERIAL_CARRIER' || tipo === 'NAVAL_CARRIER';
+  }
+
+  private obtenerPrioridadSidebar(tipo: string): number {
+    switch (tipo) {
+      case 'AERIAL_CARRIER':
+        return 0;
+      case 'NAVAL_CARRIER':
+        return 1;
+      case 'AERIAL_DRONE':
+        return 2;
+      case 'NAVAL_DRONE':
+        return 3;
+      default:
+        return 4;
+    }
+  }
+
+  private inicializarVistaLateralInferior(): void {
+    if (!this.vistaLateralInferiorGraphics) {
+      this.vistaLateralInferiorGraphics = this.add.graphics();
+      this.vistaLateralInferiorGraphics.setScrollFactor(0).setDepth(118);
+    }
+
+    this.redibujarVistaLateralInferiorFondo();
+    this.redibujarVistaLateralInferiorUnidades();
+  }
+
+  private limpiarVistaLateralInferiorUI(): void {
+    this.vistaLateralInferiorPuntos.forEach(contenedor => contenedor.destroy());
+    this.vistaLateralInferiorPuntos.clear();
+    this.vistaLateralInferiorEtiquetasAltitud.forEach(etiqueta => etiqueta.destroy());
+    this.vistaLateralInferiorEtiquetasAltitud = [];
+    this.vistaLateralInferiorGraphics?.destroy();
+    this.vistaLateralInferiorGraphics = null;
+    this.vistaLateralInferiorUnidades = [];
+  }
+
+  private redibujarVistaLateralInferiorFondo(): void {
+    if (!this.vistaLateralInferiorGraphics) {
+      return;
+    }
+
+    const g = this.vistaLateralInferiorGraphics;
+    const panelX = 0;
+    const panelY = this.obtenerAltoMapaVisible();
+    const panelW = this.scale.width;
+    const panelH = this.obtenerAltoPanelLateral();
+    const padding = GameScene.PANEL_INFERIOR_PADDING;
+
+    g.clear();
+
+    this.vistaLateralInferiorEtiquetasAltitud.forEach(etiqueta => etiqueta.destroy());
+    this.vistaLateralInferiorEtiquetasAltitud = [];
+
+    g.fillStyle(0x0d1b2a, 1);
+    g.fillRect(panelX, panelY, panelW, panelH);
+
+    g.lineStyle(1, 0x334455, 0.8);
+    g.lineBetween(panelX + padding, panelY + panelH - padding, panelX + panelW - padding, panelY + panelH - padding);
+
+    g.lineStyle(1, 0x223344, 0.5);
+    for (let z = 0; z <= GameScene.MAP_MAX_Z; z += 2) {
+      const screenY = this.zVistaLateralInferiorAPantalla(z, panelY, panelH, padding);
+      g.lineBetween(panelX + padding, screenY, panelX + panelW - padding, screenY);
+
+      if (z % 5 === 0) {
+        const etiqueta = this.add.text(panelX + 2, screenY - 6, `z=${z}`, {
+          fontSize: '9px',
+          color: '#556677'
+        });
+        etiqueta.setScrollFactor(0).setDepth(119);
+        this.vistaLateralInferiorEtiquetasAltitud.push(etiqueta);
+      }
+    }
+  }
+
+  private redibujarVistaLateralInferiorUnidades(): void {
+    const panelY = this.obtenerAltoMapaVisible();
+    const panelW = this.scale.width;
+    const panelH = this.obtenerAltoPanelLateral();
+    const padding = GameScene.PANEL_INFERIOR_PADDING;
+    const etiquetasSincronizadas = this.obtenerEtiquetasSincronizadasPorUnidad();
+
+    this.vistaLateralInferiorPuntos.forEach(contenedor => contenedor.destroy());
+    this.vistaLateralInferiorPuntos.clear();
+
+    this.vistaLateralInferiorUnidades.forEach(unidad => {
+      if (!this.esUnidadRenderizableSidebar(unidad.type)) {
+        return;
+      }
+      if (!unidad.isPlayerUnit && !unidad.esVisible) {
+        return;
+      }
+
+      const screenX = this.xVistaLateralInferiorAPantalla(unidad.x, panelW, padding);
+      const screenY = this.zVistaLateralInferiorAPantalla(unidad.z, panelY, panelH, padding);
+      const color = this.colorVistaLateralInferiorUnidad(unidad.type, unidad.isPlayerUnit, unidad.health);
+      const esPortadron = this.esPortadronSidebar(unidad.type);
+
+      const figuraUnidad = esPortadron
+        ? this.add.rectangle(0, 0, 12, 12, color)
+        : this.add.circle(0, 0, 6, color);
+      figuraUnidad.setStrokeStyle(esPortadron ? 2 : 1, unidad.isPlayerUnit ? 0x00ff88 : 0xff4444);
+
+      const label = this.add.text(0, -14, unidad.isPlayerUnit ? (etiquetasSincronizadas.get(unidad.unitId)?.inferior ?? '?') : 'E', {
+        fontSize: '9px',
+        color: unidad.health <= 0 ? '#666666' : '#ffffff'
+      }).setOrigin(0.5);
+
+      const container = this.add.container(screenX, screenY, [figuraUnidad, label]);
+      container.setScrollFactor(0).setDepth(119);
+      this.vistaLateralInferiorPuntos.set(unidad.unitId, container);
+    });
+  }
+
+  private xVistaLateralInferiorAPantalla(worldX: number, panelW: number, padding: number): number {
+    const usableW = Math.max(1, panelW - padding * 2);
+    return padding + (worldX / GameScene.MAP_MAX_X) * usableW;
+  }
+
+  private zVistaLateralInferiorAPantalla(worldZ: number, panelY: number, panelH: number, padding: number): number {
+    const usableH = Math.max(1, panelH - padding * 2);
+    return (panelY + panelH - padding) - (worldZ / GameScene.MAP_MAX_Z) * usableH;
+  }
+
+  private colorVistaLateralInferiorUnidad(tipo: string, esJugador: boolean, salud: number): number {
+    if (salud <= 0) {
+      return 0x444444;
+    }
+    const colores: Record<string, number> = {
+      AERIAL_DRONE: esJugador ? 0xff6666 : 0xff2222,
+      NAVAL_DRONE: esJugador ? 0x6688ff : 0x2244ff,
+      AERIAL_CARRIER: esJugador ? 0xffe066 : 0xffb703,
+      NAVAL_CARRIER: esJugador ? 0x72efdd : 0x00b4d8
+    };
+    return colores[tipo] ?? 0xffffff;
+  }
+
+  private actualizarVistaLateralInferiorUnidades(unidades: ISideViewUnit[]): void {
+    this.vistaLateralInferiorUnidades = unidades;
+    this.redibujarVistaLateralInferiorUnidades();
+  }
+
   private iniciarTimerPortadrones(portadronesPropioDestruido: boolean): void {
     if (this.timerPortadronesActivo || this.partidaFinalizada) {
       return;
@@ -2369,18 +3363,60 @@ export class GameScene extends Phaser.Scene {
   }
 
   private emitirActualizacionDeAltura(): void {
-    const unidades = Array.from(this.knownUnits.values()).map(unidad => ({
+    const unidadesConEnemigoEnVision = this.obtenerUnidadesConEnemigoEnVision();
+    const unidades: ISideViewUnit[] = Array.from(this.knownUnits.values()).map(unidad => ({
       unitId: unidad.unitId,
       x: unidad.x,
+      y: unidad.y,
       z: unidad.z,
       type: unidad.type,
       isPlayerUnit: this.playerUnitIds.has(unidad.unitId),
       health: unidad.health,
+      combustible: unidad.combustible,
+      tieneEnemigoEnVision: unidadesConEnemigoEnVision.has(unidad.unitId),
       esVisible: this.playerUnitIds.has(unidad.unitId)
         ? true
         : this.esVisibleParaDronesPropios(unidad),
     }));
-    this.game.events.emit('altura-unidades-actualizada', unidades);
+    this.actualizarSidebarUnidades(unidades);
+    this.actualizarVistaLateralInferiorUnidades(unidades);
+  }
+
+  private obtenerUnidadesConEnemigoEnVision(): Set<string> {
+    const unidadesConVision = new Set<string>();
+    const enemigosDetectables = Array.from(this.knownUnits.values()).filter(unidad =>
+      !this.playerUnitIds.has(unidad.unitId) &&
+      (this.esUnidadDron(unidad) || this.esPortadrones(unidad)) &&
+      unidad.health > 0
+    );
+
+    for (const unidad of this.knownUnits.values()) {
+      if (!this.playerUnitIds.has(unidad.unitId)) {
+        continue;
+      }
+      if ((!this.esUnidadDron(unidad) && !this.esPortadrones(unidad)) || unidad.health <= 0) {
+        continue;
+      }
+
+      const rango = this.obtenerRangoVisionUnidad(unidad);
+      const rango2 = rango * rango;
+
+      for (const enemigo of enemigosDetectables) {
+        const dx = unidad.x - enemigo.x;
+        const dy = unidad.y - enemigo.y;
+        if ((dx * dx + dy * dy) <= rango2) {
+          unidadesConVision.add(unidad.unitId);
+          break;
+        }
+      }
+    }
+
+    return unidadesConVision;
+  }
+
+  private aplicarFondoSuaveTexto(texto: Phaser.GameObjects.Text): void {
+    texto.setBackgroundColor('rgba(80,80,80,0.35)');
+    texto.setPadding(2, 1, 2, 1);
   }
 
   private esVisibleParaDronesPropios(unidadEnemiga: IUnit): boolean {
@@ -2400,4 +3436,3 @@ export class GameScene extends Phaser.Scene {
     return false;
   }
 }
-

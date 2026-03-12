@@ -5,7 +5,7 @@ import { JoinGameScene } from "./scenes/JoinGameScene";
 import { LoadGameScene } from "./scenes/LoadGameScene";
 import { RankingScene } from "./scenes/RankingScene";
 import { GameScene } from "./scenes/GameScene";
-import { SideViewScene } from "./scenes/SideViewScene";
+import { InstructionsScene } from "./scenes/InstructionsScene";
 
 
 const config: Phaser.Types.Core.GameConfig = {
@@ -30,8 +30,8 @@ const config: Phaser.Types.Core.GameConfig = {
         JoinGameScene,
         LoadGameScene,
         RankingScene,
-        GameScene,
-        SideViewScene
+        InstructionsScene,
+        GameScene
     ]
 };
 
