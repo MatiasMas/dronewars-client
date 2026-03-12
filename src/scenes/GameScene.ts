@@ -159,6 +159,8 @@ export class GameScene extends Phaser.Scene {
   private menuPausaVisible: boolean = false;
   private menuPausaContenedor: Phaser.GameObjects.Container | null = null;
   private textoBotonPausarMenu: Phaser.GameObjects.Text | null = null;
+  private codigoGuardadoTexto: Phaser.GameObjects.Text | null = null;
+  private codigoGuardadoActual: string = '';
   private botonesMenuPausa: Array<{
     x: number;
     y: number;
@@ -438,7 +440,9 @@ export class GameScene extends Phaser.Scene {
       if (ok && typeof payload?.codigoUnico === 'string') {
         const codigo = payload.codigoUnico as string;
         console.log("[GameScene] Partida guardada con codigo:", codigo);
-        // Mostramos el código al usuario para que lo anote.
+        // Guardamos el código y actualizamos el texto en el menú de pausa
+        this.codigoGuardadoActual = codigo;
+        this.actualizarTextoCodigoGuardado();
         this.showError(`Partida guardada.\nCódigo: ${codigo}`);
       } else {
         this.showError(message);
@@ -806,7 +810,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5);
     this.aplicarFondoSuaveTexto(hpText);
 
-    const fuelText = this.add.text(0, 40, `FUEL:${Math.round(unit.combustible ?? 100)}`, {
+    const fuelText = this.add.text(0, 40, `Combustible:${Math.round(unit.combustible ?? 100)}`, {
       fontSize: '11px',
       color: '#ffffff',
       align: 'center'
@@ -1039,7 +1043,7 @@ export class GameScene extends Phaser.Scene {
         if (typeof update.combustible === 'number') {
           const fuelLabel = this.unitFuelLabels.get(update.unitId);
           if (fuelLabel) {
-            fuelLabel.setText(`FUEL:${Math.round(update.combustible)}`);
+            fuelLabel.setText(`Combustible:${Math.round(update.combustible)}`);
           }
         }
       } else if (unit) {
@@ -1465,16 +1469,16 @@ export class GameScene extends Phaser.Scene {
       });
 
     const etiquetas = new Map<string, string>();
-    let numeroDron = 1;
-    unidadesPropias.forEach(unidad => {
-      if (this.esPortadrones(unidad)) {
-        etiquetas.set(unidad.unitId, 'Portadron');
-      } else {
-        etiquetas.set(unidad.unitId, `Dron ${numeroDron}`);
-        numeroDron += 1;
-      }
-    });
-
+    // // let numeroDron = 1;
+    // // unidadesPropias.forEach(unidad => {
+    // //   if (this.esPortadrones(unidad)) {
+    // //     etiquetas.set(unidad.unitId, 'Portadron');
+    // //   } else {
+    // //     etiquetas.set(unidad.unitId, `Dron ${unidad.type}`);
+    // //     numeroDron += 1;
+    // //   }
+    // // });
+    //
     return etiquetas;
   }
 
@@ -1673,7 +1677,7 @@ export class GameScene extends Phaser.Scene {
     const h = this.cameras.main.height;
     const bottomPanelH = Math.floor(h * 0.2);
 
-    const panelWidth = 300;
+    const panelWidth = 350;
     const panelHeight = Math.max(110, bottomPanelH - 10);
     const offsetRight = 0;
     const offsetBottom = 70;
@@ -1689,28 +1693,28 @@ export class GameScene extends Phaser.Scene {
     const titulo = this.add.text(
       -panelWidth / 2 + 10,
       -panelHeight / 2 + 8,
-      this.esJugadorUno() ? 'Dron Jugador 1' : 'Dron Jugador 2',
-      { fontSize: '13px', color: '#e5e7eb', fontStyle: 'bold' }
+      this.esJugadorUno() ? 'Fuerzas Aereas' : 'Fuerzas Navales',
+      { fontSize: '18px', color: '#e5e7eb', fontStyle: 'bold' }
     ).setOrigin(0, 0);
 
     // 1) Etiqueta del dron (arriba en el panel)
     const etiquetaCenterX = 0;
     const etiquetaY = -panelHeight / 2 + 26;
 
-    const etiquetaDron = this.add.text(
-      etiquetaCenterX,
-      etiquetaY,
-      '-',
-      { fontSize: '12px', color: '#e5e7eb', align: 'center' }
-    ).setOrigin(0.5);
-    this.aplicarFondoSuaveTexto(etiquetaDron);
+    // const etiquetaDron = this.add.text(
+    //   etiquetaCenterX,
+    //   etiquetaY,
+    //   '-',
+    //   { fontSize: '12px', color: '#e5e7eb', align: 'center' }
+    // ).setOrigin(0.5);
+    // this.aplicarFondoSuaveTexto(etiquetaDron);
 
     // 2) "Imagen" del dron justo debajo de la etiqueta
     const imagenCenterX = 0;
     const imagenY = etiquetaY + 28;
 
     const droneSprite = this.add.sprite(imagenCenterX, imagenY, "droneChinoMovLateral");
-    droneSprite.setScale(1.2);
+    droneSprite.setScale(1.8);
     droneSprite.setVisible(false);
 
     // 3) Estadísticas debajo de la imagen
@@ -1721,14 +1725,14 @@ export class GameScene extends Phaser.Scene {
       textoBaseX,
       textoBaseY,
       'Sin dron seleccionado',
-      { fontSize: '12px', color: '#f9fafb' }
+      { fontSize: '14px', color: '#f9fafb' }
     ).setOrigin(0, 0);
 
     this.selectedUnitArmamentoText = this.add.text(
       textoBaseX,
       textoBaseY + 18,
       'Armamento: -',
-      { fontSize: '12px', color: '#d1d5db' }
+      { fontSize: '14px', color: '#d1d5db' }
     ).setOrigin(0, 0);
     this.aplicarFondoSuaveTexto(this.selectedUnitArmamentoText);
 
@@ -1736,13 +1740,13 @@ export class GameScene extends Phaser.Scene {
       textoBaseX,
       textoBaseY + 36,
       'Combustible: -',
-      { fontSize: '12px', color: '#d1d5db' }
+      { fontSize: '14px', color: '#d1d5db' }
     ).setOrigin(0, 0);
 
     container.add([
       fondo,
       titulo,
-      etiquetaDron,
+      // etiquetaDron,
       droneSprite,
       this.selectedUnitCoordsText,
       this.selectedUnitArmamentoText,
@@ -1755,7 +1759,7 @@ export class GameScene extends Phaser.Scene {
 
     this.statsPanelContainer = container;
     this.statsDroneSprite = droneSprite;
-    this.statsDroneLabel = etiquetaDron;
+    // this.statsDroneLabel = etiquetaDron;
 
     this.updateSelectedUnitCoordsText();
   }
@@ -2890,7 +2894,7 @@ export class GameScene extends Phaser.Scene {
 
     const overlay = this.add.rectangle(centroX, centroY, anchoPantalla, altoPantalla, 0x000000, 0.45);
 
-    const panel = this.add.rectangle(centroX, centroY, 380, 330, 0x111827, 0.96);
+    const panel = this.add.rectangle(centroX, centroY, 380, 390, 0x111827, 0.96);
     panel.setStrokeStyle(2, 0x4b5563, 0.95);
     panel.setInteractive();
 
@@ -2949,9 +2953,9 @@ export class GameScene extends Phaser.Scene {
       this.websocketClient?.solicitarGuardarPartida();
     });
 
-    const botonConfig = crearBoton(centroY + 45, 'Configuracion', () => {
-      this.showError('Configuracion pendiente');
-    });
+    // const botonConfig = crearBoton(centroY + 45, 'Configuracion', () => {
+    //   this.showError('Configuracion pendiente');
+    // });
 
     const botonSalir = crearBoton(centroY + 95, 'Salir al menu', () => {
       const confirmar = window.confirm('Seguro que queres salir al menu principal?');
@@ -2975,14 +2979,37 @@ export class GameScene extends Phaser.Scene {
       this.scene.start('MainMenuScene');
     });
 
+    // Contenedor para el código de guardado (estilo input similar a los botones de phaser)
+    const ancho = 280;
+    const alto = 44;
+    const yCodigoGuardado = centroY + 150;
+
+    const fondoCodigoGuardado = this.add.rectangle(0, 0, ancho, alto, 0x1f2937, 1);
+    fondoCodigoGuardado.setStrokeStyle(2, 0x10b981, 0.95);
+    fondoCodigoGuardado.setInteractive({ useHandCursor: true });
+
+    this.codigoGuardadoTexto = this.add.text(0, 0, '', {
+      fontSize: '18px',
+      color: '#10b981',
+      fontStyle: 'bold',
+      align: 'center'
+    }).setOrigin(0.5);
+
+    const codigoGuardadoContenedor = this.add.container(centroX, yCodigoGuardado, [
+      fondoCodigoGuardado,
+      this.codigoGuardadoTexto
+    ]);
+    codigoGuardadoContenedor.setVisible(false); // Oculto inicialmente hasta que se guarde una partida
+
     this.menuPausaContenedor = this.add.container(0, 0, [
       overlay,
       panel,
       titulo,
       botonPausa.contenedor,
       botonGuardar.contenedor,
-      botonConfig.contenedor,
-      botonSalir.contenedor
+      // botonConfig.contenedor,
+      botonSalir.contenedor,
+      codigoGuardadoContenedor
     ]);
     this.menuPausaContenedor.setScrollFactor(0);
     this.menuPausaContenedor.setDepth(120);
@@ -3008,6 +3035,30 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.textoBotonPausarMenu.setText(this.partidaPausada ? 'Reanudar partida' : 'Pausar partida');
+  }
+
+  private actualizarTextoCodigoGuardado(): void {
+    if (!this.codigoGuardadoTexto) {
+      return;
+    }
+
+    if (this.codigoGuardadoActual) {
+      this.codigoGuardadoTexto.setText(this.codigoGuardadoActual);
+      this.codigoGuardadoTexto.setVisible(true);
+      // Mostrar el contenedor padre también
+      const contenedor = this.codigoGuardadoTexto.parentContainer;
+      if (contenedor) {
+        contenedor.setVisible(true);
+      }
+    } else {
+      this.codigoGuardadoTexto.setText('');
+      this.codigoGuardadoTexto.setVisible(false);
+      // Ocultar el contenedor padre también
+      const contenedor = this.codigoGuardadoTexto.parentContainer;
+      if (contenedor) {
+        contenedor.setVisible(false);
+      }
+    }
   }
 
   private mostrarResultadoFinal(payload: IGameEnded): void {

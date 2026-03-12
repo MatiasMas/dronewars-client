@@ -85,7 +85,7 @@ export class InstructionsScene extends Phaser.Scene {
       "1. Objetivo y condiciones de victoria",
       "- Ganas si destruyes todas las unidades enemigas.",
       "- Tambien ganas si destruyes el portadrones enemigo y las unidades restantes del rival se quedan sin combustible o sin municion.",
-      "- Si se destruye un portadrones, empieza una cuenta regresiva de 2:00 para destruir el portadrones contrario. Si el tiempo termina sin eso, hay empate.",
+      "- Si un jugador destruye el portadrones enemigo, el mismo tiene ahora 2min para intentar destruir el portadrones del jugador y empatar, si no lo logra, gana el jugador.",
       "",
       "2. Seleccionar y deseleccionar",
       "- Click izquierdo en una unidad propia para seleccionarla.",
