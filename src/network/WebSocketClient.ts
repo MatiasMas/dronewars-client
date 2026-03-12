@@ -1,4 +1,3 @@
-// Un callback de evento es una funcion que se ejecuta cuando se recibe un evento especifico
 import {ClientInternalEvents, ClientToServerEvents, ServerToClientEvents} from "../types/CommunicationEvents";
 
 type EventCallback = (data?: any) => void;
@@ -49,10 +48,7 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Registra un jugador en el servidor
-  * Mensaje: ClientToServerEvents.REGISTER_PLAYER
-  */
+  // Registra un jugador en el servidor
   public registerPlayer(playerId: string): void {
     this.playerId = playerId;
 
@@ -62,20 +58,14 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Solicita las unidades del jugador al servidor
-  * Mensaje: ClientToServerEvents.GET_PLAYER_UNITS
-  */
+  // Solicita las unidades del jugador al servidor
   public requestPlayerUnits(): void {
     this.send({
       type: ClientToServerEvents.GET_PLAYER_UNITS
     });
   }
 
-  /*
-  * Solicita seleccion de unidad al servidor (validando que el jugador pueda seleccionarla)
-  * Mensaje: ClientToServerEvents.SELECT_UNIT
-  */
+  // Solicita seleccion de unidad al servidor
   public requestUnitSelection(unitId: string): void {
     this.send({
       type: ClientToServerEvents.SELECT_UNIT,
@@ -83,12 +73,8 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Solicita movimiento de unidad al servidor
-  * Mensaje: ClientToServerEvents.MOVE_UNIT
-  */
+  // Solicita movimiento de unidad al servidor
   public solicitarMovimientoUnidad(unidadId: string, objetivoX: number, objetivoY: number, objetivoZ?: number): void {
-    // Envia MOVE_UNIT exacto y targetZ solo si viene definido
     this.send({
       type: 'MOVE_UNIT',
       unitId: unidadId,
@@ -98,10 +84,7 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Solicita recarga de municion al servidor
-  * Mensaje: ClientToServerEvents.RELOAD_AMMO
-  */
+  // Solicita recarga de municion al servidor
   public solicitarRecargaMunicion(unidadId: string, portadronesId?: string): void {
     this.send({
       type: 'RELOAD_AMMO',
@@ -110,9 +93,7 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Asigna un EventCallback segun el evento recibido
-  */
+  // Asigna un EventCallback segun el evento recibido
   public on(event: string, callback: EventCallback): void {
     if (!this.eventListeners.has(event)) {
       this.eventListeners.set(event, []);
@@ -148,9 +129,7 @@ export class WebSocketClient {
     }
   }
 
-  /*
-  * Envia un mensaje al servidor con el contenido provisto
-  */
+  // Envia un mensaje al servidor con el contenido provisto
   private send(message: any): void {
     if (!this.isConnected) {
       console.log("[WebSocket] Cannot send message, not connected to server");
@@ -169,10 +148,7 @@ export class WebSocketClient {
     }
   }
 
-  /*
-  * Solicita ataque con bomba al servidor
-  * Mensaje: ClientToServerEvents.LAUNCH_BOMB
-  */
+  // Solicita ataque con bomba al servidor
   public requestBombAttack(idUnidad: string): void {
     this.send({
       type: ClientToServerEvents.LAUNCH_BOMB,
@@ -180,10 +156,7 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Solicita disparo de misil al servidor
-  * Mensaje: ClientToServerEvents.LAUNCH_MISSILE
-  */
+  // Solicita disparo de misil al servidor
   public solicitarDisparoMisil(idUnidad: string, objetivoX: number, objetivoY: number): void {
     this.send({
       type: ClientToServerEvents.LAUNCH_MISSILE,
@@ -193,9 +166,8 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Solicita pausa al servidor
-  */
+
+  // Solicita pausa al servidor
   public solicitarPausaPartida(pausada: boolean): void {
     this.send({
       type: ClientToServerEvents.SET_GAME_PAUSED,
@@ -237,15 +209,14 @@ export class WebSocketClient {
     });
   }
 
-  /*
-  * Maneja los mensajes recibidos del servidor
-  * Parsea el mensaje y emite el evento a los clientes
-  */
+
+  // Maneja los mensajes recibidos del servidor
+  // Parsea el mensaje y emite el evento a los clientes
   private handleMessage(eventData: string): void {
     try {
       const data = JSON.parse(eventData);
 
-      // Si tiene type y es AVAILABLE_PLAYERS, el servidor envia la lista de jugadores disponibles
+      // El servidor envia la lista de jugadores disponibles
       if (data.type === ServerToClientEvents.AVAILABLE_PLAYERS) {
         this.emit(ServerToClientEvents.AVAILABLE_PLAYERS, data.payload);
         return;
@@ -333,7 +304,6 @@ export class WebSocketClient {
         return;
       }
 
-      // Fallback genérico
       if (data.type) {
         this.emit(data.type, data);
       }
@@ -343,9 +313,9 @@ export class WebSocketClient {
     }
   }
 
-  /*
-  * Recibe un evento
-  */
+
+  // Recibe un evento
+
   private emit(event: string, data?: any): void {
     const callbacks = this.eventListeners.get(event);
 

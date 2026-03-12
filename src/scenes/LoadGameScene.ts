@@ -102,7 +102,7 @@ export class LoadGameScene extends Phaser.Scene {
             this.input.keyboard?.enableGlobalCapture();
         });
 
-        // Botón "Cargar partida" con el mismo estilo que los otros botones
+        // Botón "Cargar partida"
         this.createButton("Cargar partida", 280, () => {
             this.requestLoadByCode(this.currentCode);
         });

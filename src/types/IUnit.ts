@@ -1,7 +1,3 @@
-/*
- * Esta interfaz representa una unidad.
- * Mapea a UnitSelectionDTO en el servidor
- */
 import {UnitType} from "./UnitType";
 
 export interface IUnit {

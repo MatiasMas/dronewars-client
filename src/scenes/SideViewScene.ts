@@ -29,7 +29,6 @@ export class SideViewScene extends Phaser.Scene {
     this.graphics = this.add.graphics();
     this.dibujarGrilla();
 
-    // Escuchar eventos del juego
     this.game.events.on('altura-unidades-actualizada', (unidades: ISideViewUnit[]) => {
       this.unidades = unidades;
       this.redibujarUnidades();
@@ -50,7 +49,7 @@ export class SideViewScene extends Phaser.Scene {
     g.lineStyle(1, 0x334455, 0.8);
     g.lineBetween(PADDING, this.panelH - PADDING, this.panelW - PADDING, this.panelH - PADDING);
 
-    // Líneas de altitud (z=0, 5, 10)
+    // Líneas de altitud (z=0-10)
     g.lineStyle(1, 0x223344, 0.5);
     for (let z = 0; z <= MAP_MAX_Z; z += 2) {
       const screenY = this.zAPantalla(z);
@@ -100,13 +99,13 @@ export class SideViewScene extends Phaser.Scene {
     });
   }
 
-  /** Mapea X del mundo a X en pantalla del panel */
+  // Mapea X del mundo a X en pantalla del panel
   private xAPantalla(worldX: number): number {
     const usableW = this.panelW - PADDING * 2;
     return PADDING + (worldX / MAP_MAX_X) * usableW;
   }
 
-  /** Mapea Z del mundo a Y en pantalla del panel (Z alta = arriba) */
+  // Mapea Z del mundo a Y en pantalla del panel (Z alta = arriba)
   private zAPantalla(worldZ: number): number {
     const usableH = this.panelH - PADDING * 2;
     return (this.panelH - PADDING) - (worldZ / MAP_MAX_Z) * usableH;
