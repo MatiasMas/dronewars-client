@@ -65,7 +65,6 @@ export class MainMenuScene extends Phaser.Scene {
         introSprite.setDisplaySize(width, height);
         introSprite.play(AnimationManager.KEYS.IntroGI);
 
-        // Mostrar mensaje de carga exitosa si existe
         const loadedMessage = localStorage.getItem("savedGameLoadedMessage");
         const newGameMessage = localStorage.getItem("newGameCreatedMessage");
         const messageToShow = loadedMessage || newGameMessage;
@@ -97,7 +96,6 @@ export class MainMenuScene extends Phaser.Scene {
             });
         }
 
-        // Timer para el final automático de la intro
         const introTimer = this.time.delayedCall(26000, () => {
             if (introSprite.active) {
                 introSprite.destroy();
@@ -112,10 +110,8 @@ export class MainMenuScene extends Phaser.Scene {
             this.input.keyboard?.off("keydown", skipIntro);
             this.input.off("pointerdown", skipIntro);
             
-            // Cancelar el timer
             introTimer.remove();
             
-            // Destruir elementos
             if (introSprite.active) {
                 introSprite.destroy();
             }
@@ -128,8 +124,6 @@ export class MainMenuScene extends Phaser.Scene {
             this.showMainMenuContent();
         };
 
-        // Agregar listeners para skipear después de un pequeño delay
-        // Esto evita que el clic inicial que inicia la intro también la skipee
         this.time.delayedCall(500, () => {
             this.input.keyboard?.once("keydown", skipIntro);
             this.input.once("pointerdown", skipIntro);
@@ -210,16 +204,14 @@ export class MainMenuScene extends Phaser.Scene {
         localStorage.removeItem("hasLoadedSavedGame");
         localStorage.removeItem("hasPlayedIntro");
 
-        // Guardamos mensaje para mostrar después del reload
+        // Guardamos mensaje para mostrar despues del reload
         localStorage.setItem("newGameCreatedMessage", "Partida nueva creada. Unite a la partida para comenzar a jugar.");
 
-        // Enviamos RESET_GAME al servidor en un WebSocket efímero
         const client = new WebSocketClient();
         client.connect()
             .then(() => {
                 client.solicitarResetJuego();
 
-                // Dar tiempo al servidor para procesar el reset antes de recargar
                 setTimeout(() => {
                     client.disconnect();
                     window.location.reload();

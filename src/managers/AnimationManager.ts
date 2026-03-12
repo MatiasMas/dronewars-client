@@ -31,10 +31,9 @@ export class AnimationManager {
     MMenu: "MMenu"
   } as const;
 
-  /**
-   * Carga todos los spritesheets necesarios para las animaciones.
-   * Se llama desde el preload de la GameScene.
-   */
+  //Carga de los spritesheets necesarios para las animaciones.
+  //Se llama desde el preload de la GameScene.
+
   static preload(scene: Phaser.Scene): void {
     scene.load.spritesheet(
       "droneChinoMovLateral",
@@ -274,10 +273,9 @@ export class AnimationManager {
     );
   }
 
-  /**
-   * Registra todas las animaciones en el AnimationManager.
-   * Se llama desde el create de la GameScene.
-   */
+  //Registro todas las animaciones.
+  //Se llaman desde el create de la GameScene.
+
   static createAnimations(scene: Phaser.Scene): void {
     const anims = scene.anims;
 

@@ -42,7 +42,7 @@ export class JoinGameScene extends Phaser.Scene {
         this.createButton("Volver al menú", height - 90, () => {
             this.detachLobbyListeners();
             this.websocketClient?.disconnect();
-            // Recargar la página para limpiar completamente el estado después de una partida
+            // Recargar la pagina para limpiar completamente el estado después de una partida
             window.location.reload();
         });
 
@@ -72,7 +72,6 @@ export class JoinGameScene extends Phaser.Scene {
         };
         this.websocketClient.on(ServerToClientEvents.AVAILABLE_PLAYERS, this.availablePlayersListener);
 
-        // Si estamos reutilizando un WebSocket ya conectado, solicitar explícitamente los jugadores
         this.websocketClient.solicitarJugadoresDisponibles();
 
         const players = await this.waitForAvailablePlayers();
@@ -205,7 +204,7 @@ export class JoinGameScene extends Phaser.Scene {
         }
 
         this.registrationConfirmed = true;
-        // Ya no necesitamos polling; el servidor hace broadcast cuando alguien se registra
+        // Ya no necesitamos polling, el servidor hace broadcast cuando alguien se registra
         this.tryStartGameWhenBothJoined();
     }
 
@@ -217,13 +216,13 @@ export class JoinGameScene extends Phaser.Scene {
         const player1 = this.lastPlayersSnapshot.find(player => player.playerId === "player_1");
         const player2 = this.lastPlayersSnapshot.find(player => player.playerId === "player_2");
 
-        // Caso A: el server envía snapshot completo con ambos jugadores
+        // Caso A: el server envía captura completa con ambos jugadores
         if (player1 && player2) {
             return player1.available === false && player2.available === false;
         }
 
         // Caso B: el server envía solo jugadores disponibles.
-        // Si el "otro" jugador ya no aparece como disponible, ambos ya están unidos.
+        // Si el "otro" jugador ya no aparece como disponible, ambos ya estan unidos.
         const availableIds = new Set(
             this.lastPlayersSnapshot
                 .filter(player => player.available)
