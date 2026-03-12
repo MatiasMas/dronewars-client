@@ -40,6 +40,11 @@ export class SoundManager {
             "MenuMusic",
             "assets/music/Main_Menu_Music.wav"
         );
+
+        scene.load.audio(
+            "BackgroundMusic",
+            "assets/music/backgroundmusic.mp3"
+        );
     }
 
     private playWithCooldown(key: string, volume: number): void {
@@ -80,12 +85,27 @@ export class SoundManager {
         }
     }
 
+    playBackgroundMusic(): void {
+        if (!this.scene.sound.get("BackgroundMusic")?.isPlaying){
+            this.scene.sound.play("BackgroundMusic", { loop: true, volume: 0.3 });
+        }
+    }
+
+    stopBackgroundMusic(): void {
+        if (this.scene.sound.get("BackgroundMusic")) {
+            this.scene.sound.stopByKey("BackgroundMusic");
+        }
+    }
+
     stopMusic(): void {
         if (this.scene.sound.get("MenuMusic")) {
             this.scene.sound.stopByKey("MenuMusic");
         }
         if (this.scene.sound.get("Intro")) {
             this.scene.sound.stopByKey("Intro");
+        }
+        if (this.scene.sound.get("BackgroundMusic")) {
+            this.scene.sound.stopByKey("BackgroundMusic");
         }
     }
 

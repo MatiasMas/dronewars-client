@@ -219,6 +219,7 @@ export class GameScene extends Phaser.Scene {
       this.tweenCamaraSeleccion = null;
       this.limpiarSidebarUI();
       this.limpiarVistaLateralInferiorUI();
+      this.soundManager?.stopBackgroundMusic();
     });
 
     this.websocketClient = data.websocketClient ?? new WebSocketClient();
@@ -258,6 +259,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.websocketClient.requestPlayerUnits();
+
+    // Iniciar música de fondo
+    this.soundManager.playBackgroundMusic();
 
     this.drawUI();
     this.crearMenuPausa();
@@ -2733,6 +2737,7 @@ export class GameScene extends Phaser.Scene {
       console.log("Score guardado:", this.nombreJugador, this.playerScore);
 
       this.time.delayedCall(1000, () => {
+        this.soundManager?.stopBackgroundMusic();
         this.scene.start("RankingScene");
       });
     }
@@ -2956,6 +2961,9 @@ export class GameScene extends Phaser.Scene {
       // Limpiar recursos y desconectar WebSocket
       this.websocketClient?.disconnect();
       this.websocketClient = null;
+
+      // Detener música de fondo
+      this.soundManager?.stopBackgroundMusic();
 
       // Limpiar listeners y recursos de Phaser
       this.input.keyboard?.removeAllListeners();
