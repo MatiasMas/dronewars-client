@@ -1515,20 +1515,6 @@ export class GameScene extends Phaser.Scene {
     ).setOrigin(0.5).setScrollFactor(0);
     titulo.setDepth(100);
 
-    this.add.text(
-      20,
-      70,
-      'WASD: mover mapa libre | Click izquierdo: mover unidad | Q/E y rueda: altura',
-      {fontSize: '14px', color: '#cccccc'}
-    ).setScrollFactor(0).setDepth(100);
-
-    this.add.text(
-      20,
-      this.obtenerAltoMapaVisible() - 40,
-      'Connected to the server',
-      {fontSize: '12px', color: '#00ff00'}
-    ).setScrollFactor(0).setDepth(100);
-
     this.timerPortadronesTexto = this.add.text(
       this.cameras.main.centerX,
       58,
