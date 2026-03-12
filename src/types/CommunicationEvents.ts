@@ -1,6 +1,6 @@
 /*
- * CommunicationEvents define todos los eventos transmitidos entre cliente y servidor.
- * Los clientes envian un evento; el servidor lo procesa con el nombre usado aqui.
+ * CommunicationEvents define todos los eventos transmitidos entre cliente y servidor
+ * Los clientes envian un evento y el servidor lo procesa con el nombre que se usa aca
  *
  * ServerToClient: cuando el servidor envia un evento al cliente
  * ClientToServer: cuando el cliente envia un evento al servidor
@@ -10,11 +10,8 @@ export enum ClientToServerEvents {
   REGISTER_PLAYER = 'REGISTER_PLAYER',
   GET_PLAYER_UNITS = 'GET_PLAYER_UNITS',
   SELECT_UNIT = 'SELECT_UNIT',
-  // MOVE_UNIT: movimiento validado por servidor
   MOVE_UNIT = 'MOVE_UNIT',
-  // RELOAD_AMMO: recarga de municion validada por servidor
 
-  // En el futuro, los eventos de movimiento o ataques deberian ir aqui
   RELOAD_AMMO = 'RELOAD_AMMO',
   LAUNCH_BOMB = 'LAUNCH_BOMB',
   LAUNCH_MISSILE = 'LAUNCH_MISSILE',
@@ -45,7 +42,6 @@ export enum ServerToClientEvents {
   MUNICION_RECARGADA = 'MUNICION_RECARGADA',
   GAME_ENDED = 'GAME_ENDED',
 
-  // En el futuro, los eventos de sincronizacion deberian ir aqui
   GAME_PAUSE_UPDATED = 'GAME_PAUSE_UPDATED',
   SAVE_GAME_RESULT = 'SAVE_GAME_RESULT',
   SAVED_GAME_LOADED = 'SAVED_GAME_LOADED',
@@ -56,7 +52,7 @@ export enum ServerToClientEvents {
  * y se usan para comunicar entre componentes como managers y escenas
  */
 export enum ClientInternalEvents {
-  // Gestor de seleccion
+  // seleccion
   SELECTION_CHANGED = 'SELECTION_CHANGED',
   SELECTION_CONFIRMED = 'SELECTION_CONFIRMED',
   SELECTION_CLEARED = 'SELECTION_CLEARED',
